@@ -1,0 +1,76 @@
+<!doctype html>
+<!--
+  Renders the interface in an ordinary browser with a stand-in for the Rust core, so layout can be
+  checked (and screenshotted headlessly) without touching the running app or a real project.
+  Open http://localhost:1420/dev/harness.html while `npm run dev` or `npm run tauri dev` is running.
+  Commands are not executed: edits here do nothing.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>snn-editor harness</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module">
+      const library = await (await fetch("/dev/library.json")).json();
+      const clip = (id, track, start, duration, name, kind, extra = {}) => ({
+        id, track, start, duration, source_in: 0, name, kind, media: null, text: null, template: null,
+        props: {}, effects: [], transition_in: null, transition_out: null, last_actor: "user", ...extra,
+      });
+      const track = (id, name, kind) => ({ id, name, kind, locked: false, muted: false, hidden: false });
+      const state = {
+        project: {
+          version: 1, name: "Harness", media: [],
+          settings: { width: 1920, height: 1080, fps_num: 30, fps_den: 1 },
+          sequence: {
+            name: "Sequence 01", in_point: null, out_point: null, markers: [{ id: "m1", at: 150, label: "Marker", actor: null }],
+            tracks: [track("T1", "Captions", "caption"), track("V3", "Video 3", "video"), track("V2", "Video 2", "video"),
+              track("V1", "Video 1", "video"), track("A1", "Audio 1", "audio"), track("A2", "Audio 2", "audio"), track("A3", "Audio 3", "audio")],
+            clips: [
+              clip("c1", "V1", 0, 300, "Background", "video", { effects: ["Vignette"] }),
+              clip("c2", "V1", 300, 300, "Second shot", "video", { transition_in: { name: "Push left", duration: 30 } }),
+              clip("c3", "V2", 0, 300, "Inset", "video", {
+                props: { zoom_x: 0.35, zoom_y: 0.35, pos_x: 560, pos_y: 280, crop_left: 200, "fx.Border": 60 },
+                effects: ["Rounded corners", "Border", "Drop shadow"], transition_out: { name: "Zoom in", duration: 20 }, last_actor: "claude-code",
+              }),
+              clip("c4", "V3", 0, 300, "Title", "graphic", { template: "title", text: "INSPECTOR", props: { color: "#ffcc00", font: "Impact", pos_y: -300, font_size: 70 } }),
+              clip("c5", "A1", 0, 600, "voice.wav", "audio", { props: { volume: -6 } }),
+            ],
+          },
+        },
+        path: null, dirty: true, can_undo: true, can_redo: false, undo_label: "clip.set_property", redo_label: null, history_len: 3,
+        log: [{ seq: 1, actor: "claude-code", tool: "clip.add_effect", args: { clip: "c3", effect: "Border" }, ok: true, result: { clip: "c3" } }],
+      };
+      const answers = {
+        get_state: () => state,
+        library: () => library,
+        mcp_status: () => ({ running: true, url: "http://127.0.0.1:7420/mcp", error: null, tools: 33 }),
+      };
+      window.__TAURI_INTERNALS__ = {
+        metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main", windowLabel: "main" } },
+        transformCallback: () => Math.floor(Math.random() * 1e9),
+        convertFileSrc: (path) => path,
+        invoke: async (cmd) => (answers[cmd] ? answers[cmd]() : null),
+      };
+      await import("/src/main.tsx");
+
+      // ?select=c3 clicks that clip, which opens it in the inspector.
+      const wanted = new URLSearchParams(location.search).get("select");
+      const waitFor = async (selector) => {
+        for (let i = 0; i < 100; i++) {
+          const el = document.querySelector(selector);
+          if (el) return el;
+          await new Promise((r) => setTimeout(r, 50));
+        }
+      };
+      const el = wanted && (await waitFor(`.clip[data-id="${wanted}"] .nm`));
+      if (el) {
+        const { left, top } = el.getBoundingClientRect();
+        const at = { bubbles: true, button: 0, clientX: left + 12, clientY: top + 6 };
+        el.dispatchEvent(new PointerEvent("pointerdown", at));
+        window.dispatchEvent(new PointerEvent("pointerup", at));
+      }
+    </script>
+  </body>
+</html>

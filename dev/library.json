@@ -1,0 +1,512 @@
+{
+  "effects": [
+    {
+      "amount": 100.0,
+      "hint": "Black and white",
+      "name": "Greyscale"
+    },
+    {
+      "amount": 100.0,
+      "hint": "Warm brown tone",
+      "name": "Sepia"
+    },
+    {
+      "amount": 100.0,
+      "hint": "Negative colours",
+      "name": "Invert"
+    },
+    {
+      "amount": 30.0,
+      "hint": "Soft focus",
+      "name": "Blur"
+    },
+    {
+      "amount": 65.0,
+      "hint": "Darker below 50, brighter above",
+      "name": "Brightness"
+    },
+    {
+      "amount": 65.0,
+      "hint": "Flatter below 50, punchier above",
+      "name": "Contrast"
+    },
+    {
+      "amount": 75.0,
+      "hint": "Muted below 50, vivid above",
+      "name": "Saturation"
+    },
+    {
+      "amount": 25.0,
+      "hint": "Rotate all colours",
+      "name": "Hue shift"
+    },
+    {
+      "amount": 60.0,
+      "hint": "Darkened edges",
+      "name": "Vignette"
+    },
+    {
+      "amount": 45.0,
+      "hint": "Punch in on the picture",
+      "name": "Zoom punch"
+    },
+    {
+      "amount": 40.0,
+      "hint": "Camera shake",
+      "name": "Shake"
+    },
+    {
+      "amount": 30.0,
+      "hint": "Round the frame, for insets",
+      "name": "Rounded corners"
+    },
+    {
+      "amount": 30.0,
+      "hint": "White outline, for insets",
+      "name": "Border"
+    },
+    {
+      "amount": 50.0,
+      "hint": "Shadow behind the frame, for insets",
+      "name": "Drop shadow"
+    }
+  ],
+  "properties": [
+    {
+      "applies": "visual",
+      "default": 1.0,
+      "group": "Transform",
+      "key": "zoom_x",
+      "label": "Zoom X",
+      "max": 10.0,
+      "min": 0.0,
+      "step": 0.01,
+      "type": "number",
+      "unit": "×"
+    },
+    {
+      "applies": "visual",
+      "default": 1.0,
+      "group": "Transform",
+      "key": "zoom_y",
+      "label": "Zoom Y",
+      "max": 10.0,
+      "min": 0.0,
+      "step": 0.01,
+      "type": "number",
+      "unit": "×"
+    },
+    {
+      "applies": "visual",
+      "default": true,
+      "group": "Transform",
+      "key": "zoom_link",
+      "label": "Link zoom",
+      "type": "bool"
+    },
+    {
+      "applies": "visual",
+      "default": 0.0,
+      "group": "Transform",
+      "key": "pos_x",
+      "label": "Position X",
+      "max": 4000.0,
+      "min": -4000.0,
+      "step": 1.0,
+      "type": "number",
+      "unit": "px"
+    },
+    {
+      "applies": "visual",
+      "default": 0.0,
+      "group": "Transform",
+      "key": "pos_y",
+      "label": "Position Y",
+      "max": 4000.0,
+      "min": -4000.0,
+      "step": 1.0,
+      "type": "number",
+      "unit": "px"
+    },
+    {
+      "applies": "visual",
+      "default": 0.0,
+      "group": "Transform",
+      "key": "rotation",
+      "label": "Rotation angle",
+      "max": 360.0,
+      "min": -360.0,
+      "step": 0.1,
+      "type": "number",
+      "unit": "°"
+    },
+    {
+      "applies": "visual",
+      "default": 0.0,
+      "group": "Transform",
+      "key": "anchor_x",
+      "label": "Anchor point X",
+      "max": 4000.0,
+      "min": -4000.0,
+      "step": 1.0,
+      "type": "number",
+      "unit": "px"
+    },
+    {
+      "applies": "visual",
+      "default": 0.0,
+      "group": "Transform",
+      "key": "anchor_y",
+      "label": "Anchor point Y",
+      "max": 4000.0,
+      "min": -4000.0,
+      "step": 1.0,
+      "type": "number",
+      "unit": "px"
+    },
+    {
+      "applies": "visual",
+      "default": 0.0,
+      "group": "Transform",
+      "key": "pitch",
+      "label": "Pitch",
+      "max": 85.0,
+      "min": -85.0,
+      "step": 0.1,
+      "type": "number",
+      "unit": "°"
+    },
+    {
+      "applies": "visual",
+      "default": 0.0,
+      "group": "Transform",
+      "key": "yaw",
+      "label": "Yaw",
+      "max": 85.0,
+      "min": -85.0,
+      "step": 0.1,
+      "type": "number",
+      "unit": "°"
+    },
+    {
+      "applies": "visual",
+      "default": false,
+      "group": "Transform",
+      "key": "flip_h",
+      "label": "Flip horizontal",
+      "type": "bool"
+    },
+    {
+      "applies": "visual",
+      "default": false,
+      "group": "Transform",
+      "key": "flip_v",
+      "label": "Flip vertical",
+      "type": "bool"
+    },
+    {
+      "applies": "visual",
+      "default": 0.0,
+      "group": "Cropping",
+      "key": "crop_left",
+      "label": "Crop left",
+      "max": 4000.0,
+      "min": 0.0,
+      "step": 1.0,
+      "type": "number",
+      "unit": "px"
+    },
+    {
+      "applies": "visual",
+      "default": 0.0,
+      "group": "Cropping",
+      "key": "crop_right",
+      "label": "Crop right",
+      "max": 4000.0,
+      "min": 0.0,
+      "step": 1.0,
+      "type": "number",
+      "unit": "px"
+    },
+    {
+      "applies": "visual",
+      "default": 0.0,
+      "group": "Cropping",
+      "key": "crop_top",
+      "label": "Crop top",
+      "max": 4000.0,
+      "min": 0.0,
+      "step": 1.0,
+      "type": "number",
+      "unit": "px"
+    },
+    {
+      "applies": "visual",
+      "default": 0.0,
+      "group": "Cropping",
+      "key": "crop_bottom",
+      "label": "Crop bottom",
+      "max": 4000.0,
+      "min": 0.0,
+      "step": 1.0,
+      "type": "number",
+      "unit": "px"
+    },
+    {
+      "applies": "visual",
+      "default": "Normal",
+      "group": "Composite",
+      "key": "blend",
+      "label": "Composite mode",
+      "options": [
+        "Normal",
+        "Add",
+        "Multiply",
+        "Screen",
+        "Overlay",
+        "Darken",
+        "Lighten",
+        "Soft Light",
+        "Hard Light",
+        "Difference",
+        "Exclusion",
+        "Color Dodge",
+        "Color Burn",
+        "Hue",
+        "Saturation",
+        "Color",
+        "Luminosity"
+      ],
+      "type": "choice"
+    },
+    {
+      "applies": "visual",
+      "default": 100.0,
+      "group": "Composite",
+      "key": "opacity",
+      "label": "Opacity",
+      "max": 100.0,
+      "min": 0.0,
+      "step": 0.1,
+      "type": "number",
+      "unit": "%"
+    },
+    {
+      "applies": "media",
+      "default": 100.0,
+      "group": "Speed change",
+      "key": "speed",
+      "label": "Speed",
+      "max": 1000.0,
+      "min": 10.0,
+      "step": 1.0,
+      "type": "number",
+      "unit": "%"
+    },
+    {
+      "applies": "sound",
+      "default": 0.0,
+      "group": "Audio",
+      "key": "volume",
+      "label": "Volume",
+      "max": 0.0,
+      "min": -60.0,
+      "step": 0.1,
+      "type": "number",
+      "unit": "dB"
+    },
+    {
+      "applies": "sound",
+      "default": 0.0,
+      "group": "Audio",
+      "key": "fade_in",
+      "label": "Fade in",
+      "max": 10.0,
+      "min": 0.0,
+      "step": 0.05,
+      "type": "number",
+      "unit": "s"
+    },
+    {
+      "applies": "sound",
+      "default": 0.0,
+      "group": "Audio",
+      "key": "fade_out",
+      "label": "Fade out",
+      "max": 10.0,
+      "min": 0.0,
+      "step": 0.05,
+      "type": "number",
+      "unit": "s"
+    },
+    {
+      "applies": "text",
+      "default": "Segoe UI",
+      "group": "Text",
+      "key": "font",
+      "label": "Font",
+      "options": [
+        "Segoe UI",
+        "Arial",
+        "Impact",
+        "Georgia",
+        "Times New Roman",
+        "Verdana",
+        "Trebuchet MS",
+        "Consolas",
+        "Comic Sans MS"
+      ],
+      "type": "choice"
+    },
+    {
+      "applies": "text",
+      "default": 100.0,
+      "group": "Text",
+      "key": "font_size",
+      "label": "Size",
+      "max": 400.0,
+      "min": 10.0,
+      "step": 1.0,
+      "type": "number",
+      "unit": "%"
+    },
+    {
+      "applies": "text",
+      "default": true,
+      "group": "Text",
+      "key": "bold",
+      "label": "Bold",
+      "type": "bool"
+    },
+    {
+      "applies": "text",
+      "default": "#ffffff",
+      "group": "Text",
+      "key": "color",
+      "label": "Colour",
+      "type": "color"
+    },
+    {
+      "applies": "text",
+      "default": 0.0,
+      "group": "Text",
+      "key": "tracking",
+      "label": "Tracking",
+      "max": 50.0,
+      "min": -10.0,
+      "step": 0.5,
+      "type": "number",
+      "unit": ""
+    },
+    {
+      "applies": "text",
+      "default": "#000000",
+      "group": "Text",
+      "key": "stroke_color",
+      "label": "Stroke colour",
+      "type": "color"
+    },
+    {
+      "applies": "text",
+      "default": 5.0,
+      "group": "Text",
+      "key": "stroke_size",
+      "label": "Stroke size",
+      "max": 30.0,
+      "min": 0.0,
+      "step": 0.5,
+      "type": "number",
+      "unit": ""
+    },
+    {
+      "applies": "text",
+      "default": true,
+      "group": "Text",
+      "key": "shadow",
+      "label": "Drop shadow",
+      "type": "bool"
+    }
+  ],
+  "transitions": [
+    {
+      "hint": "Blend from the previous clip",
+      "name": "Cross dissolve"
+    },
+    {
+      "hint": "Blend through a blur",
+      "name": "Blur dissolve"
+    },
+    {
+      "hint": "Fade through black",
+      "name": "Dip to black"
+    },
+    {
+      "hint": "Fade through white",
+      "name": "Dip to white"
+    },
+    {
+      "hint": "Slides in over the previous clip, moving left",
+      "name": "Slide left"
+    },
+    {
+      "hint": "Slides in over the previous clip, moving right",
+      "name": "Slide right"
+    },
+    {
+      "hint": "Slides in moving up",
+      "name": "Slide up"
+    },
+    {
+      "hint": "Slides in moving down",
+      "name": "Slide down"
+    },
+    {
+      "hint": "Pushes the previous clip out to the left",
+      "name": "Push left"
+    },
+    {
+      "hint": "Pushes the previous clip out to the right",
+      "name": "Push right"
+    },
+    {
+      "hint": "Reveals along an edge moving left",
+      "name": "Wipe left"
+    },
+    {
+      "hint": "Reveals along an edge moving right",
+      "name": "Wipe right"
+    },
+    {
+      "hint": "Reveals along an edge moving up",
+      "name": "Wipe up"
+    },
+    {
+      "hint": "Reveals along an edge moving down",
+      "name": "Wipe down"
+    },
+    {
+      "hint": "Opens from a circle in the centre",
+      "name": "Iris"
+    },
+    {
+      "hint": "Grows in from small",
+      "name": "Zoom in"
+    },
+    {
+      "hint": "Settles in from oversized",
+      "name": "Zoom out"
+    },
+    {
+      "hint": "Fast zoom with blur",
+      "name": "Whoosh zoom"
+    },
+    {
+      "hint": "Rotates in",
+      "name": "Spin"
+    },
+    {
+      "hint": "Short digital glitch",
+      "name": "Glitch"
+    }
+  ]
+}
