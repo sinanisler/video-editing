@@ -49,6 +49,12 @@ fn allow_asset(app: AppHandle, path: String) -> Result<(), String> {
     app.asset_protocol_scope().allow_file(&path).map_err(|e| e.to_string())
 }
 
+/// The importable media under the given paths: a folder gives its supported files at any depth, a file comes back as given.
+#[tauri::command]
+fn scan_media(paths: Vec<String>) -> Result<Vec<String>, String> {
+    snn_core::media_under(&paths)
+}
+
 /// Where a video's filmstrip frames are on disk, and how many seconds apart they are.
 #[derive(Clone, serde::Serialize)]
 struct Filmstrip {
@@ -313,6 +319,7 @@ pub fn run() {
             mcp_status,
             library,
             allow_asset,
+            scan_media,
             probe_audio,
             filmstrip,
             waveform,

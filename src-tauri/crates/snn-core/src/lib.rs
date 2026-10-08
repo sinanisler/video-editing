@@ -14,6 +14,7 @@ mod library;
 mod model;
 mod probe;
 mod render;
+mod scan;
 mod tools;
 
 pub use analysis::{available_encoders, base64, unbase64, ffmpeg_path, is_analysis, probe_streams, Analysis, Job};
@@ -25,6 +26,7 @@ pub use library::{library, Library};
 pub use model::*;
 pub use probe::{probe_mp4, Probe};
 pub use render::{render, CANCELLED};
+pub use scan::media_under;
 pub use tools::{catalog, is_export, ToolDef, INSTRUCTIONS};
 
 #[cfg(test)]
