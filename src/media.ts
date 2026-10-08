@@ -82,6 +82,31 @@ export async function importPaths(paths: string[]): Promise<MediaItem[]> {
   return items;
 }
 
+/**
+ * The files to import for `paths`: a folder gives every supported file inside it, at any depth. A file comes back as
+ * it was given, so the importer can say what it cannot read. The core does the search, since the webview cannot list folders.
+ */
+const filesInside = (paths: string[]) => invoke<string[]>("scan_media", { paths });
+
+/** Imports whatever can be imported under `paths`. Folders contribute their supported media, however deep it is. */
+export async function importFromPaths(paths: string[]): Promise<MediaItem[]> {
+  let files: string[];
+  try {
+    files = await filesInside(paths);
+  } catch (e) {
+    toast(`Could not read that: ${e}`);
+    return [];
+  }
+  if (!files.length) {
+    toast("No video, audio or image files in there");
+    return [];
+  }
+  toast(`Importing ${files.length} ${files.length === 1 ? "file" : "files"}…`);
+  const items = await importPaths(files);
+  toast(`Imported ${items.length} of ${files.length}`);
+  return items;
+}
+
 const overlaps = (track: string, start: number, duration: number) =>
   project()?.sequence.clips.find((c) => c.track === track && start < clipEnd(c) && c.start < start + duration);
 

@@ -1,7 +1,7 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useEffect, useState } from "react";
 import { clampPlayhead, handleKey, timelineApi } from "./commands";
-import { addMediaClips, importPaths } from "./media";
+import { addMediaClips, importFromPaths } from "./media";
 import { Overlays, StatusBar, TopBar } from "./components/Chrome";
 import { LeftPanel } from "./components/LeftPanel";
 import { Preview } from "./components/Preview";
@@ -23,7 +23,7 @@ function listenForFileDrops() {
     const x = payload.position.x / window.devicePixelRatio;
     const y = payload.position.y / window.devicePixelRatio;
     const target = timelineApi.dropTarget(x, y);
-    const items = await importPaths(payload.paths);
+    const items = await importFromPaths(payload.paths);
     if (target && items.length) await addMediaClips(items, target.frame, target.track);
   });
 }

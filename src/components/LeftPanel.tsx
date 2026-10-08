@@ -1,4 +1,4 @@
-import { importMedia, timelineApi } from "../commands";
+import { importFolders, importMedia, timelineApi } from "../commands";
 import { addMediaClip, addMediaClips, assetUrl } from "../media";
 import { core, exec, execBatch, project, toast, ui } from "../store";
 import type { MediaItem, MediaSort, Project } from "../types";
@@ -20,6 +20,7 @@ const FORMATS = [
   ["Images", "PNG, JPG, WebP, GIF"],
 ] as const;
 const SUBTITLE_TIP = "Import an SRT or WebVTT subtitle file as captions on the captions track, at the times written in the file.";
+const FOLDER_TIP = "Pick one or more folders. Every video, audio and image file inside them is imported, including in subfolders. Other files are skipped.";
 const IMPORT_TIP = `Import video, audio and image files.\n${FORMATS.map(([kind, list]) => `${kind}: ${list}`).join("\n")}`;
 /** What a media item does, shown when it is hovered. */
 const ITEM_TIP = "Drag onto the timeline, or double-click to add it at the playhead.\nRight-click for more options.";
@@ -167,6 +168,7 @@ function poolMenu(p: Project): MenuItem[] {
   const grid = ui.get().mediaView === "grid";
   return [
     { label: "Import files…", hint: "Ctrl+I", action: importMedia },
+    { label: "Import folders…", action: importFolders },
     { label: "Import subtitles…", action: chooseSubtitles },
     "sep",
     { label: grid ? "Show as list" : "Show as grid", action: () => ui.set({ mediaView: grid ? "list" : "grid" }) },
@@ -371,8 +373,9 @@ function MediaPool() {
     return (
       <div className="empty">
         <b>No media yet</b>
-        <p>Choose files with the button below, or drop them onto this panel. Right-click for more options.</p>
+        <p>Choose files or whole folders with the buttons below, or drop them onto this panel. Right-click for more options.</p>
         <button className="primary wide" data-tip={IMPORT_TIP} onClick={importMedia}>Import files…</button>
+        <button className="wide" style={{ marginTop: 6 }} data-tip={FOLDER_TIP} onClick={importFolders}>Import folders…</button>
         <button className="wide" style={{ marginTop: 6 }} data-tip={SUBTITLE_TIP} onClick={chooseSubtitles}>Import subtitles…</button>
       </div>
     );

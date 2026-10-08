@@ -1,5 +1,5 @@
 import { confirm, open, save } from "@tauri-apps/plugin-dialog";
-import { importPaths, MEDIA_EXTENSIONS } from "./media";
+import { importFromPaths, importPaths, MEDIA_EXTENSIONS } from "./media";
 import { core, exec, execBatch, openProject, project, redo, saveProject, seek, setPlaying, toast, ui, undo } from "./store";
 import type { Clip } from "./types";
 import { clamp, clipEnd, cutTargets, fpsOf, linkedIds, MAX_PPS, MIN_PPS, timelineFrames } from "./util";
@@ -65,6 +65,13 @@ export const importMedia = () =>
       filters: [{ name: "Video, audio and images", extensions: MEDIA_EXTENSIONS }],
     });
     if (picked) await importPaths(Array.isArray(picked) ? picked : [picked]);
+  });
+
+/** Pick one or more folders; every supported file inside them, at any depth, is imported. */
+export const importFolders = () =>
+  guarded(async () => {
+    const picked = await open({ directory: true, multiple: true, title: "Import folders" });
+    if (picked) await importFromPaths(Array.isArray(picked) ? picked : [picked]);
   });
 
 async function saveAs() {
@@ -304,6 +311,7 @@ export const COMMANDS: EditorCommand[] = [
   },
   { id: "saveas", title: "Save project as…", keys: ["Ctrl+Shift+S"], run: () => guarded(saveAs) },
   { id: "import", title: "Import media…", keys: ["Ctrl+I"], run: importMedia },
+  { id: "importfolder", title: "Import folder…", run: importFolders },
   { id: "export", title: "Export video…", keys: ["Ctrl+E"], run: () => ui.set({ overlay: "export" }) },
   { id: "projectsettings", title: "Project settings (size, frame rate)…", run: () => ui.set({ overlay: "project" }) },
   { id: "palette", title: "Command palette", keys: ["Ctrl+K"], run: () => ui.set({ overlay: "palette" }) },
