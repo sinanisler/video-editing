@@ -4,7 +4,7 @@ import { useSyncExternalStore } from "react";
 import type { ExportStatus } from "./export";
 import type { Live } from "./look";
 import { unimplemented } from "./look";
-import type { EditorState, Library, McpStatus } from "./types";
+import type { EditorState, Library, McpStatus, MediaSort, MediaView } from "./types";
 import { clamp, fpsOf, timelineFrames } from "./util";
 
 function createStore<T extends object>(initial: T) {
@@ -100,6 +100,16 @@ export const ui = createStore({
   fileDrag: false,
   /** A media pool item being dragged with the pointer. */
   mediaDrag: null as { id: string; name: string; x: number; y: number } | null,
+  /** Media pool: how the items are shown and ordered, and which are selected. */
+  mediaView: "grid" as MediaView,
+  /** Width of a grid tile in pixels. */
+  mediaTile: 130,
+  mediaSort: "imported" as MediaSort,
+  /** Reverses the order. For import order that means newest first. */
+  mediaDesc: false,
+  mediaSel: [] as string[],
+  /** The box being dragged across the media pool, in screen pixels. */
+  mediaMarquee: null as { x: number; y: number; w: number; h: number } | null,
   toast: "",
 });
 

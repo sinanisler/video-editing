@@ -220,7 +220,26 @@ h4:first-child { margin-top: 0; }
 
 /* media pool */
 button.wide { width: 100%; padding: 7px; margin-bottom: 10px; }
-.media { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.media { display: grid; gap: 8px; }
+/* The bar stays at the top of the panel while the media scrolls under it. */
+.mediabar { position: sticky; top: -10px; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -10px -10px 8px; padding: 8px 10px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.mediabar select { padding: 2px 4px; font-size: 14px; }
+.mediabar button { font-size: 14px; padding: 2px 8px; }
+.mediabar input[type=range] { width: 90px; }
+.mediabar .muted { margin-left: auto; font-size: 14px; white-space: nowrap; }
+.viewtoggle { display: flex; }
+.viewtoggle button { border-radius: 0; min-width: 30px; }
+.viewtoggle button:first-child { border-radius: 4px 0 0 4px; }
+.viewtoggle button:last-child { border-radius: 0 4px 4px 0; }
+.medialist { display: grid; gap: 6px; }
+/* List rows: a small thumbnail beside the name and details. */
+.mi.row { display: flex; align-items: center; gap: 8px; padding: 5px; }
+.mi.row .th { width: 72px; flex: none; }
+.mi.row .nm, .mi.row .meta { padding: 0; }
+.mi .info { min-width: 0; }
+.mi.sel { border-color: var(--accent); background: #f5b83d1f; }
+/* The box drawn while dragging across the media panel. */
+.mselect { position: fixed; z-index: 60; border: 1px solid var(--accent); background: #f5b83d22; pointer-events: none; }
 .mi { position: relative; background: var(--panel2); border: 1px solid var(--line); border-radius: 5px; overflow: hidden; cursor: grab; }
 .mi:hover { border-color: var(--accent); }
 .mi .th { display: block; width: 100%; aspect-ratio: 16/9; object-fit: cover; background: #000; pointer-events: none; }

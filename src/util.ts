@@ -1,4 +1,4 @@
-import type { Clip, Project, Track } from "./types";
+import type { Clip, MediaItem, MediaSort, Project, Track } from "./types";
 
 export const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
@@ -70,6 +70,31 @@ export function linkedIds(clips: Clip[], ids: string[], linked = true): string[]
   const groups = new Set(ids.map((id) => clips.find((c) => c.id === id)?.link).filter((g): g is string => !!g));
   for (const c of clips) if (c.link && groups.has(c.link)) out.add(c.id);
   return [...out];
+}
+
+const KIND_ORDER: Record<MediaItem["kind"], number> = { video: 0, audio: 1, image: 2 };
+
+/**
+ * The media in the order the pool shows it. `desc` reverses that: for import order, newest first.
+ * Ties in length or kind fall back to name, so the order never depends on the import sequence alone.
+ */
+export function sortMedia(media: MediaItem[], sort: MediaSort, desc: boolean): MediaItem[] {
+  const imported = new Map(media.map((m, i) => [m.id, i]));
+  const byName = (a: MediaItem, b: MediaItem) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+  const cmp = (a: MediaItem, b: MediaItem): number => {
+    if (sort === "name") return byName(a, b);
+    if (sort === "length") return a.duration - b.duration || byName(a, b);
+    if (sort === "type") return KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || byName(a, b);
+    return imported.get(a.id)! - imported.get(b.id)!;
+  };
+  const sorted = [...media].sort(cmp);
+  return desc ? sorted.reverse() : sorted;
+}
+
+/** The media selection after a click on one item. A plain click replaces it; Ctrl or Shift toggles the item in. */
+export function pickMedia(current: string[], id: string, extend: boolean): string[] {
+  if (!extend) return [id];
+  return current.includes(id) ? current.filter((x) => x !== id) : [...current, id];
 }
 
 /** The clips a cut at frame `at` would split: those the frame falls strictly inside, on tracks that are not locked. */

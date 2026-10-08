@@ -42,6 +42,15 @@
         path: null, dirty: true, can_undo: true, can_redo: false, undo_label: "clip.set_property", redo_label: null, history_len: 3,
         log: [{ seq: 1, actor: "claude-code", tool: "clip.add_effect", args: { clip: "c3", effect: "Border" }, ok: true, result: { clip: "c3" } }],
       };
+      // ?media=1 fills the media pool, so the list (not the empty state) can be checked. c5 uses media2.
+      if (new URLSearchParams(location.search).has("media")) {
+        state.project.media = [
+          { id: "media1", name: "interview.mp4", path: "C:/clips/interview.mp4", kind: "video", duration: 2400, width: 1920, height: 1080, has_audio: true },
+          { id: "media2", name: "voice.wav", path: "C:/clips/voice.wav", kind: "audio", duration: 600, width: 0, height: 0, has_audio: true },
+          { id: "media3", name: "logo.png", path: "C:/clips/logo.png", kind: "image", duration: 0, width: 800, height: 800, has_audio: false },
+        ];
+        state.project.sequence.clips.find((c) => c.id === "c5").media = "media2";
+      }
       const answers = {
         get_state: () => state,
         library: () => library,

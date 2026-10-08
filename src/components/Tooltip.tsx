@@ -6,7 +6,9 @@ const DELAY_MS = 400;
 interface Tip {
   text: string;
   x: number;
-  y: number;
+  /** The control's top and bottom edges. The tip sits above the top, or below the bottom. */
+  top: number;
+  bottom: number;
   below: boolean;
 }
 
@@ -37,9 +39,7 @@ export function Tooltip() {
         const text = el.dataset.tip;
         if (!text || !el.isConnected) return;
         const r = el.getBoundingClientRect();
-        // Above the control, unless that would run off the top of the window.
-        const below = r.top < 90;
-        setTip({ text, x: r.left + r.width / 2, y: below ? r.bottom + 8 : r.top - 8, below });
+        setTip({ text, x: r.left + r.width / 2, top: r.top, bottom: r.bottom, below: false });
       }, DELAY_MS);
     };
     document.addEventListener("pointerover", onOver);
@@ -57,11 +57,13 @@ export function Tooltip() {
     };
   }, []);
 
-  // Keep the box inside the window horizontally, whatever the control's position.
+  // Keep the box inside the window horizontally, whatever the control's position. And above the control when it
+  // fits there; a long tip next to the top of the window goes below instead of being cut off.
   useLayoutEffect(() => {
     if (!tip || !box.current) return;
     const half = box.current.offsetWidth / 2;
     setLeft(Math.min(Math.max(tip.x, half + 8), window.innerWidth - half - 8));
+    if (!tip.below && tip.top - 8 - box.current.offsetHeight < 0) setTip({ ...tip, below: true });
   }, [tip]);
 
   if (!tip) return null;
@@ -70,7 +72,7 @@ export function Tooltip() {
       ref={box}
       className={`tip ${tip.below ? "below" : "above"}`}
       role="tooltip"
-      style={{ left, top: tip.y }}
+      style={{ left, top: tip.below ? tip.bottom + 8 : tip.top - 8 }}
     >
       {tip.text}
     </div>
