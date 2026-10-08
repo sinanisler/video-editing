@@ -1,18 +1,9 @@
 import { useRef, useState } from "react";
 import { reader } from "../look";
-import { core, exec, execBatch, toast, ui } from "../store";
+import { commitProps as commit, core, exec, previewProps as preview, toast, ui } from "../store";
 import type { Clip, LogEntry, MediaItem, PropDef, Track, Transition } from "../types";
 import { clamp, fpsOf, timecode } from "../util";
 import { Tabs } from "./Tabs";
-
-/** Shows a dragged value in the preview without touching the project. */
-const preview = (clip: string, values: Record<string, unknown>) => ui.set({ live: { clip, values } });
-
-/** Writes values to the clip as one undo step, then drops the live preview. Null resets a key. */
-function commit(clip: string, values: Record<string, unknown>) {
-  const commands = Object.entries(values).map(([key, value]) => ({ tool: "clip.set_property", args: { clip, key, value } }));
-  return execBatch(commands).finally(() => ui.set({ live: null }));
-}
 
 const decimals = (step: number) => (step >= 1 ? 0 : step >= 0.1 ? 1 : 2);
 

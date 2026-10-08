@@ -71,6 +71,20 @@
         el.dispatchEvent(new PointerEvent("pointerdown", at));
         window.dispatchEvent(new PointerEvent("pointerup", at));
       }
+
+      // ?grab=body|tl|tr|bl|br|rot&by=dx,dy then drags that part of the selected clip in the preview
+      // and holds the pointer down, so a screenshot shows the live result.
+      const params = new URLSearchParams(location.search);
+      const grab = params.get("grab");
+      const part = grab && (await waitFor(grab === "body" ? `#stage [data-hit="${wanted}"]` : `#gizmos [data-handle="${grab}"]`));
+      if (part) {
+        const [dx, dy] = (params.get("by") ?? "0,0").split(",").map(Number);
+        const q = part.getBoundingClientRect();
+        const from = { x: q.left + q.width / 2, y: q.top + q.height / 2 };
+        const ev = (x, y) => ({ bubbles: true, button: 0, clientX: x, clientY: y });
+        part.dispatchEvent(new PointerEvent("pointerdown", ev(from.x, from.y)));
+        window.dispatchEvent(new PointerEvent("pointermove", ev(from.x + dx, from.y + dy)));
+      }
     </script>
   </body>
 </html>

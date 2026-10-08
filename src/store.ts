@@ -99,6 +99,15 @@ export const execBatch = (commands: { tool: string; args: Record<string, unknown
   commands.length === 1
     ? exec(commands[0].tool, commands[0].args)
     : call<Record<string, unknown>>("execute_batch", { commands });
+/** Shows values in the preview while they are being dragged, without touching the project. */
+export const previewProps = (clip: string, values: Record<string, unknown>) => ui.set({ live: { clip, values } });
+
+/** Writes values to the clip as one undo step, then drops the live preview. Null resets a key. */
+export function commitProps(clip: string, values: Record<string, unknown>) {
+  const commands = Object.entries(values).map(([key, value]) => ({ tool: "clip.set_property", args: { clip, key, value } }));
+  return execBatch(commands).finally(() => ui.set({ live: null }));
+}
+
 export const undo = () => call("undo");
 export const redo = () => call("redo");
 export const saveProject = (path?: string) => call<string>("save_project", { path: path ?? null });
