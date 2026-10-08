@@ -229,6 +229,7 @@ export function outgoingLook(name: string, t: number): CSSProperties {
 
 /** Loudness of a clip at `frame` as 0..1: volume, fades, and any transition used as an audio fade. */
 export function clipGain(c: Clip, frame: number, fps: number, r: Reader): number {
+  if (r.b("mute")) return 0;
   let gain = 10 ** (r.n("volume") / 20);
   const fadeIn = r.n("fade_in") * fps;
   const fadeOut = r.n("fade_out") * fps;

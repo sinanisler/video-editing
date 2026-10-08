@@ -36,6 +36,8 @@ pub enum Command {
         width: u32,
         #[serde(default)]
         height: u32,
+        #[serde(default)]
+        has_audio: bool,
     },
     /// Removes an item from the pool. Fails while clips still use it.
     #[serde(rename = "media.remove")]
@@ -208,7 +210,12 @@ fn check_span(start: Frame, duration: Frame) -> R<()> {
 fn check_source(p: &Project, media: &Option<String>, kind: ClipKind, source_in: Frame, duration: Frame, speed: f64) -> R<()> {
     let Some(id) = media else { return Ok(()) };
     let m = p.media(id).ok_or_else(|| format!("no media {id}"))?;
-    if (m.kind == MediaKind::Audio) != (kind == ClipKind::Audio) {
+    // An audio clip may take its sound from a video file, which is how an imported video's sound gets its own track.
+    if kind == ClipKind::Audio && m.kind == MediaKind::Video {
+        if !m.has_audio {
+            return Err(format!("{} has no sound track", m.name).to_lowercase());
+        }
+    } else if (m.kind == MediaKind::Audio) != (kind == ClipKind::Audio) {
         return Err(format!("{} is {:?} media and cannot back a {kind:?} clip", m.name, m.kind).to_lowercase());
     }
     if source_in < 0 {
@@ -275,7 +282,7 @@ pub fn apply(p: &mut Project, cmd: &Command, actor: &str) -> R<Value> {
             Ok(json!({ "width": s.width, "height": s.height, "fps": s.fps_num as f64 / s.fps_den as f64, "duration_frames": p.duration() }))
         }
 
-        Command::ImportMedia { path, name, kind, duration, width, height } => {
+        Command::ImportMedia { path, name, kind, duration, width, height, has_audio } => {
             if let Some(existing) = p.media.iter().find(|m| &m.path == path) {
                 return Ok(json!({ "media": existing, "already_imported": true }));
             }
@@ -291,6 +298,7 @@ pub fn apply(p: &mut Project, cmd: &Command, actor: &str) -> R<Value> {
                 duration: *duration,
                 width: *width,
                 height: *height,
+                has_audio: *has_audio,
             };
             p.media.push(item.clone());
             Ok(json!({ "media": item }))

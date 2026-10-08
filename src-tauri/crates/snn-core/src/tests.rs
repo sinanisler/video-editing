@@ -384,7 +384,76 @@ fn mp4_probe_reads_length_and_size() {
     std::fs::write(&path, file).unwrap();
     let probe = probe_mp4(&path).unwrap();
     std::fs::remove_file(&path).ok();
-    assert_eq!(probe, Probe { kind: MediaKind::Video, seconds: 12.5, width: 1280, height: 720 });
+    assert_eq!(probe, Probe { kind: MediaKind::Video, seconds: 12.5, width: 1280, height: 720, has_audio: false });
+}
+
+/// A box with a 4-character type and a payload, for building small MP4 files by hand in tests.
+fn mp4_box(kind: &[u8], payload: &[u8]) -> Vec<u8> {
+    let mut v = ((payload.len() + 8) as u32).to_be_bytes().to_vec();
+    v.extend_from_slice(kind);
+    v.extend_from_slice(payload);
+    v
+}
+
+/// A track with a handler of the given type, the way MP4 stores audio (soun) and video (vide).
+fn mp4_track(handler: &[u8; 4]) -> Vec<u8> {
+    let mut hdlr = vec![0u8; 24];
+    hdlr[8..12].copy_from_slice(handler);
+    mp4_box(b"trak", &mp4_box(b"mdia", &mp4_box(b"hdlr", &hdlr)))
+}
+
+#[test]
+fn probe_sees_a_sound_track() {
+    let mut mvhd = vec![0u8; 100];
+    mvhd[12..16].copy_from_slice(&600u32.to_be_bytes());
+    mvhd[16..20].copy_from_slice(&6000u32.to_be_bytes());
+    let mut video = mp4_track(b"vide");
+    video.extend(mp4_track(b"soun"));
+    let mut moov = mp4_box(b"mvhd", &mvhd);
+    moov.extend(video);
+    let file = [mp4_box(b"ftyp", b"isom"), mp4_box(b"moov", &moov)].concat();
+    let path = std::env::temp_dir().join(format!("snn-core-audio-{}.mp4", std::process::id()));
+    std::fs::write(&path, file).unwrap();
+    let probe = probe_mp4(&path);
+    std::fs::remove_file(&path).ok();
+    let probe = probe.unwrap();
+    assert!(probe.has_audio, "a soun handler means the file has sound");
+}
+
+#[test]
+fn probe_reads_the_real_mrbeast_file_when_present() {
+    // Documents/MrBeast-being-a-SnapYT.App.mp4 on the development machine. Skipped where it is absent.
+    let Some(home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) else { return };
+    let path = std::path::Path::new(&home).join("Documents").join("MrBeast-being-a-SnapYT.App.mp4");
+    if !path.is_file() {
+        return;
+    }
+    let probe = probe_mp4(&path).unwrap();
+    assert_eq!(probe.kind, MediaKind::Video);
+    assert_eq!((probe.width, probe.height), (640, 360));
+    assert!((probe.seconds - 594.08).abs() < 0.05, "length was {}", probe.seconds);
+    assert!(probe.has_audio, "this file has an AAC track");
+}
+
+#[test]
+fn import_records_whether_the_file_has_sound() {
+    let mut e = Editor::default();
+    let out = e
+        .execute("user", cmd(json!({"tool": "media.import", "args": {"path": "C:/clips/a.mp4", "kind": "video", "duration": 300, "has_audio": true}})))
+        .unwrap();
+    assert_eq!(out["media"]["has_audio"], json!(true));
+    let out = e
+        .execute("user", cmd(json!({"tool": "media.import", "args": {"path": "C:/clips/b.mp4", "kind": "video", "duration": 300}})))
+        .unwrap();
+    assert_eq!(out["media"]["has_audio"], json!(false), "older callers that omit it get false");
+}
+
+#[test]
+fn mute_is_a_sound_property_that_defaults_to_off() {
+    let lib = library();
+    let mute = lib.properties.iter().find(|p| p.key == "mute").expect("mute is in the library");
+    assert_eq!(mute.applies, crate::library::Applies::Sound);
+    assert!(matches!(mute.kind, crate::library::PropKind::Bool { default: false }));
 }
 
 #[test]
@@ -798,4 +867,24 @@ mod export {
         // The glitch and whoosh clips are back to a plain picture once their transitions are over.
         expect(&file, 8, 320, 180, RED);
     }
+}
+
+#[test]
+fn a_video_with_sound_can_back_an_audio_clip_and_a_silent_one_cannot() {
+    let mut e = Editor::default();
+    let media = |e: &mut Editor, path: &str, has_audio: bool| {
+        let out = e
+            .execute("user", cmd(json!({"tool": "media.import", "args": {"path": path, "kind": "video", "duration": 300, "has_audio": has_audio}})))
+            .unwrap();
+        out["media"]["id"].as_str().unwrap().to_string()
+    };
+    let loud = media(&mut e, "C:/clips/loud.mp4", true);
+    let silent = media(&mut e, "C:/clips/silent.mp4", false);
+    let audio_track = e.project().sequence.tracks.iter().find(|t| t.kind == TrackKind::Audio).unwrap().id.clone();
+    let add = |media: &str| {
+        cmd(json!({"tool": "timeline.add_clip", "args": {"track": audio_track, "start": 0, "duration": 100, "name": "x", "kind": "audio", "media": media}}))
+    };
+    assert!(e.execute("user", add(&loud)).is_ok(), "the sound of a video with sound must be placeable");
+    let err = e.execute("user", add(&silent)).unwrap_err();
+    assert!(err.contains("no sound track"), "got: {err}");
 }

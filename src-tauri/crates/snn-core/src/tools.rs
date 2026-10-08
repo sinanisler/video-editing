@@ -486,6 +486,7 @@ impl Editor {
                     args["duration"] = json!(self.project().settings.frames(info.seconds));
                     args["width"] = json!(info.width);
                     args["height"] = json!(info.height);
+                    args["has_audio"] = json!(info.has_audio);
                 }
                 self.execute(actor, to_command(name, args)?)
             }

@@ -825,6 +825,9 @@ impl<'a> Builder<'a> {
         }
         let lib = self.lib.clone();
         let r = Props { c, lib: &lib };
+        if r.b("mute") {
+            return;
+        }
         let (from, to) = (self.out_frame(c.start).max(chunk.0), self.out_frame(c.end()).min(chunk.1));
         let speed = c.speed();
         let into = self.timeline(from) - c.start as f64;

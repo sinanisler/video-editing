@@ -20,7 +20,7 @@ pub struct TransitionDef {
 }
 
 /// Which clips a property makes sense on.
-#[derive(Clone, Copy, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Applies {
     /// Anything with a picture: video, images, graphics, captions.
@@ -102,6 +102,7 @@ pub fn library() -> Library {
         num("volume", "Volume", "Audio", Sound, (-60.0, 0.0, 0.1), 0.0, "dB"),
         num("fade_in", "Fade in", "Audio", Sound, (0.0, 10.0, 0.05), 0.0, "s"),
         num("fade_out", "Fade out", "Audio", Sound, (0.0, 10.0, 0.05), 0.0, "s"),
+        flag("mute", "Mute", "Audio", Sound, false),
         PropDef { key: "font", label: "Font", group: "Text", applies: Text, kind: PropKind::Choice { options: FONTS, default: "Segoe UI" } },
         num("font_size", "Size", "Text", Text, (10.0, 400.0, 1.0), 100.0, "%"),
         flag("bold", "Bold", "Text", Text, true),

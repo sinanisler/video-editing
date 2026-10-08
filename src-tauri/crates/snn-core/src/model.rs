@@ -145,6 +145,9 @@ pub struct MediaItem {
     pub width: u32,
     #[serde(default)]
     pub height: u32,
+    /// Whether the file has a sound track. Older projects were saved without it, so it reads as false.
+    #[serde(default)]
+    pub has_audio: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

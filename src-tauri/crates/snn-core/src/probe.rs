@@ -13,6 +13,8 @@ pub struct Probe {
     pub seconds: f64,
     pub width: u32,
     pub height: u32,
+    /// True when the file has a sound track (an `soun` handler in some track).
+    pub has_audio: bool,
 }
 
 const MAX_MOOV: u64 = 256 * 1024 * 1024;
@@ -106,10 +108,18 @@ pub fn probe_mp4(path: &Path) -> Result<Probe, String> {
         })
         .find(|(w, h)| *w > 0 && *h > 0)
         .unwrap_or((0, 0));
+    let has_audio = boxes(&moov)
+        .into_iter()
+        .filter(|(kind, _)| *kind == b"trak")
+        .filter_map(|(_, trak)| find(trak, b"mdia"))
+        .filter_map(|mdia| find(mdia, b"hdlr"))
+        // A handler box is version and flags (4 bytes), a pre-defined field (4 bytes), then the handler type.
+        .any(|hdlr| hdlr.len() >= 12 && &hdlr[8..12] == b"soun");
     Ok(Probe {
         kind: if width > 0 { MediaKind::Video } else { MediaKind::Audio },
         seconds: duration as f64 / timescale as f64,
         width,
         height,
+        has_audio,
     })
 }

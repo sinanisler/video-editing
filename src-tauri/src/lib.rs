@@ -49,6 +49,12 @@ fn allow_asset(app: AppHandle, path: String) -> Result<(), String> {
     app.asset_protocol_scope().allow_file(&path).map_err(|e| e.to_string())
 }
 
+/// Whether an MP4, MOV or M4V file has a sound track. Other formats return null, which means not known.
+#[tauri::command]
+fn probe_audio(path: String) -> Option<bool> {
+    snn_core::probe_mp4(std::path::Path::new(&path)).ok().map(|p| p.has_audio)
+}
+
 #[tauri::command]
 fn execute(app: AppHandle, core: State<Core>, command: Command) -> Result<serde_json::Value, String> {
     let mut editor = core.0.lock().unwrap();
@@ -151,6 +157,7 @@ pub fn run() {
             mcp_status,
             library,
             allow_asset,
+            probe_audio,
             execute,
             execute_batch,
             undo,

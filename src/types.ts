@@ -61,6 +61,8 @@ export interface MediaItem {
   duration: Frame;
   width: number;
   height: number;
+  /** Whether the file has a sound track. */
+  has_audio: boolean;
 }
 
 export interface Sequence {

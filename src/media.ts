@@ -1,5 +1,5 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-import { exec, project, toast, ui } from "./store";
+import { exec, execBatch, project, toast, ui } from "./store";
 import type { MediaItem, MediaKind, Track } from "./types";
 import { clipEnd, fpsOf } from "./util";
 
@@ -63,12 +63,15 @@ export async function importPaths(paths: string[]): Promise<MediaItem[]> {
     try {
       await invoke("allow_asset", { path });
       const info = await probe(path, kind);
+      // Only MP4-family files can be read for a sound track here. Anything else is assumed to have one.
+      const hasAudio = kind === "image" ? false : kind === "audio" ? true : (await invoke<boolean | null>("probe_audio", { path })) ?? true;
       const result = await exec("media.import", {
         path,
         kind,
         duration: Math.round(info.seconds * fps),
         width: info.width,
         height: info.height,
+        has_audio: hasAudio,
       });
       if (result) items.push(result.media as MediaItem);
     } catch (e) {
@@ -81,6 +84,22 @@ export async function importPaths(paths: string[]): Promise<MediaItem[]> {
 
 const overlaps = (track: string, start: number, duration: number) =>
   project()?.sequence.clips.find((c) => c.track === track && start < clipEnd(c) && c.start < start + duration);
+
+/**
+ * Places a video's sound on the first unlocked audio track that is free for its length, and mutes the video
+ * clip. The two steps are separate undo steps: the video clip has to exist before the mute can refer to it.
+ * Clips stay independent after this, so moving one does not move the other.
+ */
+async function linkAudio(m: MediaItem, clip: string, start: number, duration: number) {
+  const p = project();
+  if (!p) return;
+  const track = p.sequence.tracks.find((t) => t.kind === "audio" && !t.locked && !overlaps(t.id, start, duration));
+  if (!track) return toast(`No free audio track for the sound of ${m.name}`);
+  await execBatch([
+    { tool: "timeline.add_clip", args: { track: track.id, start, duration, name: m.name, kind: "audio", media: m.id } },
+    { tool: "clip.set_property", args: { clip, key: "mute", value: true } },
+  ]);
+}
 
 /**
  * Puts a pool item on the timeline at `frame`. Uses `track` when the item fits there, otherwise
@@ -117,6 +136,8 @@ export async function addMediaClip(
   });
   if (!result) return null;
   ui.set({ selection: [result.clip as string] });
+  // A video with sound gets its sound as a linked audio clip, and its own sound is muted so it is not heard twice.
+  if (m.kind === "video" && m.has_audio) await linkAudio(m, result.clip as string, start, duration);
   return { track: target.id, end: start + duration };
 }
 
