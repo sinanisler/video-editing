@@ -74,6 +74,11 @@ export const ui = createStore({
   audioH: 42,
   /** Width of the track headers column, in pixels. */
   headsW: 190,
+  /** Height of the timeline panel, in pixels. Starts at 46% of the window. */
+  timelineH: Math.round(window.innerHeight * 0.46),
+  /** Width of the media and inspector panels, in pixels. */
+  leftW: 330,
+  rightW: 370,
   /** Colour stripe for a track, by track id. */
   trackColors: {} as Record<string, string>,
   /** The track whose name is being edited. */

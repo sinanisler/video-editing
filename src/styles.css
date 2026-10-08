@@ -326,3 +326,11 @@ button.wide { width: 100%; padding: 7px; margin-bottom: 10px; }
 #heads { position: relative; }
 .colgrip { position: absolute; top: 0; bottom: 0; right: 0; width: 10px; cursor: ew-resize; z-index: 5; }
 .colgrip:hover { background: #f5b83d55; }
+
+/* Edges you can drag to resize the panels and the timeline. */
+#main { position: relative; }
+#tl { position: relative; }
+.pgrip { position: absolute; z-index: 20; }
+.pgrip.v { top: 0; bottom: 0; width: 6px; cursor: ew-resize; }
+.pgrip.h { top: -3px; left: 0; right: 0; height: 6px; cursor: ns-resize; }
+.pgrip:hover { background: #f5b83d55; }

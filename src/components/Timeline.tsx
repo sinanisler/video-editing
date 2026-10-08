@@ -367,6 +367,21 @@ export function Timeline() {
     drag.current = { mode, lead: c, group, grabFrame: at, moved: false, collapse: keepGroup, delta: 0, ghosts: {} };
   };
 
+  /** Drag the top edge of the timeline to make it taller or shorter. */
+  const startTimelineResize = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const y0 = e.clientY;
+    const h0 = ui.get().timelineH;
+    const move = (ev: PointerEvent) => ui.set({ timelineH: clamp(Math.round(h0 - (ev.clientY - y0)), 160, window.innerHeight - 260) });
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   /** Drag the right edge of the track headers column to change its width. */
   const startHeadsResize = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
@@ -398,6 +413,12 @@ export function Timeline() {
 
   return (
     <div id="tl" className={tool === "razor" ? "razor" : ""}>
+      <i
+        className="pgrip h"
+        data-tip="Drag up or down to make the timeline taller or shorter. Double-click to reset."
+        onPointerDown={startTimelineResize}
+        onDoubleClick={() => ui.set({ timelineH: Math.round(window.innerHeight * 0.46) })}
+      />
       <Toolbar selected={seq.clips.filter((c) => selection.includes(c.id))} fps={fps} />
       <div id="tlbody" style={{ "--heads": `${headsW}px` } as React.CSSProperties}>
         <div id="heads">
