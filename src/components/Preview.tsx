@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { runCommand } from "../commands";
+import { openTransformMenu } from "./ClipMenu";
 import { clipGain, clipLook, outgoingLook, presence, reader, textLook, transitionLook } from "../look";
 import { assetUrl } from "../media";
 import { commitProps, core, previewProps, setPlaying, toast, ui } from "../store";
@@ -14,8 +15,8 @@ const SNAP_PX = 8;
  * This is the interim player: each clip is its own element, so a cut can hitch for a moment
  * while the next one starts. The WebCodecs compositor replaces it.
  */
-function Media(props: { c: Clip; m: MediaItem; fps: number; frame: number; frozen: boolean; gain: number }) {
-  const { c, m, fps, frame, frozen, gain } = props;
+function Media(props: { c: Clip; m: MediaItem; fps: number; frame: number; frozen: boolean; gain: number; soundOnly?: boolean }) {
+  const { c, m, fps, frame, frozen, gain, soundOnly } = props;
   const ref = useRef<HTMLMediaElement>(null);
   const playing = ui.use((s) => s.playing);
   const rate = ui.use((s) => s.rate);
@@ -43,7 +44,8 @@ function Media(props: { c: Clip; m: MediaItem; fps: number; frame: number; froze
   });
 
   const src = assetUrl(m.path);
-  if (m.kind === "audio") return <audio ref={ref as React.RefObject<HTMLAudioElement>} src={src} preload="auto" />;
+  // A sound-only element plays a video's sound without drawing its picture on the stage.
+  if (m.kind === "audio" || soundOnly) return <audio ref={ref as React.RefObject<HTMLAudioElement>} src={src} preload="auto" />;
   return <video ref={ref as React.RefObject<HTMLVideoElement>} src={src} preload="auto" />;
 }
 
@@ -267,14 +269,14 @@ function Stage() {
   const inverse = (zoom: number) => 1 / Math.max(0.01, Math.abs(zoom * punch));
 
   return (
-    <div id="stagebox" onPointerDown={onPointerDown}>
+    <div id="stagebox" onPointerDown={onPointerDown} onContextMenu={(e) => openTransformMenu(e, p)}>
       <div id="stage" ref={stage}>
         {shown.map((s) => (
           <LayerView key={s.c.id} s={s} p={p} lib={lib} live={live} />
         ))}
         {sounding.map((c) => {
           const m = media(c);
-          return m && <Media key={c.id} c={c} m={m} fps={fps} frame={frame} frozen={false} gain={clipGain(c, frame, fps, reader(c, lib, live))} />;
+          return m && <Media key={c.id} c={c} m={m} fps={fps} frame={frame} frozen={false} soundOnly gain={clipGain(c, frame, fps, reader(c, lib, live))} />;
         })}
         {safeArea && <div id="safe" />}
       </div>
