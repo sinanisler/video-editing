@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { runCommand, splitAt, timelineApi } from "../commands";
 import { core, exec, seek, toast, ui } from "../store";
-import type { Clip, Sequence } from "../types";
+import type { Clip, Project, Sequence } from "../types";
 import { clamp, clipClass, clipEnd, fits, fpsOf, linkedIds, MAX_PPS, MIN_PPS, mmss, timecode, timelineFrames, trackHeight } from "../util";
 import { openTrackMenu, Splitter, SPLITTER_PX, TrackHead } from "./Tracks";
 import { openClipMenu } from "./ClipMenu";
@@ -164,6 +164,37 @@ function PaceLane({ seq, fps, ppf, total }: { seq: Sequence; fps: number; ppf: n
     );
   }
   return <div className="lane ana" style={{ height: 24 }}>{cells}</div>;
+}
+
+/**
+ * The picture at the playhead, from the top-most video clip there, shown just above the playhead so you can see
+ * exactly which frame it is. It uses the same cached frames as the clips.
+ */
+function PlayheadPreview({ p, ppf, fps }: { p: Project; ppf: number; fps: number }) {
+  const frame = ui.use((s) => s.frame);
+  const PREVIEW_PX = 60;
+  const dpr = window.devicePixelRatio || 1;
+  // Tracks are listed top first, so the first video track with a clip here is the one on top.
+  const topVideo = p.sequence.tracks.filter((t) => t.kind === "video").map((t) => t.id);
+  const clip = topVideo
+    .map((track) => p.sequence.clips.find((c) => c.track === track && frame >= c.start && frame < clipEnd(c)))
+    .find((c) => c?.media);
+  const m = clip?.media ? p.media.find((x) => x.id === clip.media) : undefined;
+  const size = filmstripSize(PREVIEW_PX * dpr);
+  const k = m ? filmstripKey(m.id, size) : "";
+  const strip = ui.use((s) => (k ? s.filmstrips[k] : undefined));
+  useEffect(() => {
+    if (m) requestFilmstrip(m, size);
+  }, [m, size]);
+  if (!clip || !m || typeof strip !== "object") return null;
+  const width = Math.round(PREVIEW_PX * ((m.width || 16) / (m.height || 9)));
+  const seconds = (clip.source_in + (frame - clip.start)) / fps;
+  return (
+    <div className="phprev" style={{ left: frame * ppf, width: width + 2 }}>
+      <img src={frameUrl(strip, seconds)} style={{ width, height: PREVIEW_PX }} draggable={false} alt="" />
+      <span>{timecode(frame, fps)}</span>
+    </div>
+  );
 }
 
 export function Timeline() {
@@ -562,6 +593,7 @@ export function Timeline() {
               <div className="cutline" style={{ left: cutFrame * ppf }} data-label={timecode(cutFrame, fps)} />
             )}
             <Playhead ppf={ppf} scroller={scroller} />
+            <PlayheadPreview p={p} ppf={ppf} fps={fps} />
           </div>
         </div>
       </div>
