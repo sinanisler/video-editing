@@ -12,25 +12,25 @@ export function TopBar() {
       <span className="brand">
         snn<i>-editor</i>
       </span>
-      <button className="ghost" title="New project (Ctrl+N)" onClick={() => runCommand("new")}>New</button>
-      <button className="ghost" title="Open project (Ctrl+O)" onClick={() => runCommand("open")}>Open</button>
-      <button className="ghost" title="Save project (Ctrl+S)" onClick={() => runCommand("save")}>Save</button>
-      <button className="ghost" title="Export video (Ctrl+E)" onClick={() => runCommand("export")}>Export</button>
-      <button className="ghost" title="Keyboard shortcuts (?)" onClick={() => runCommand("shortcuts")}>Shortcuts</button>
-      <span className="proj" title={s.path ?? "Not saved to a file yet"}>
+      <button className="ghost" data-tip="New project (Ctrl+N)" onClick={() => runCommand("new")}>New</button>
+      <button className="ghost" data-tip="Open project (Ctrl+O)" onClick={() => runCommand("open")}>Open</button>
+      <button className="ghost" data-tip="Save project (Ctrl+S)" onClick={() => runCommand("save")}>Save</button>
+      <button className="ghost" data-tip="Export video (Ctrl+E)" onClick={() => runCommand("export")}>Export</button>
+      <button className="ghost" data-tip="Keyboard shortcuts (?)" onClick={() => runCommand("shortcuts")}>Shortcuts</button>
+      <span className="proj" data-tip={s.path ?? "Not saved to a file yet"}>
         <b>{s.project.name}</b> · {s.project.sequence.name}
         {s.dirty && " · unsaved"}
       </span>
-      <button className="ghost" disabled={!s.can_undo} title={`Undo ${s.undo_label ?? ""} (Ctrl+Z)`} onClick={() => runCommand("undo")}>
+      <button className="ghost" disabled={!s.can_undo} data-tip={`Undo ${s.undo_label ?? ""} (Ctrl+Z)`} onClick={() => runCommand("undo")}>
         ↶
       </button>
-      <button className="ghost" disabled={!s.can_redo} title={`Redo ${s.redo_label ?? ""} (Ctrl+Shift+Z)`} onClick={() => runCommand("redo")}>
+      <button className="ghost" disabled={!s.can_redo} data-tip={`Redo ${s.redo_label ?? ""} (Ctrl+Shift+Z)`} onClick={() => runCommand("redo")}>
         ↷
       </button>
-      <button className="ghost" onClick={() => runCommand("palette")}>
+      <button className="ghost" data-tip="Search every command by name and run it (Ctrl+K)" onClick={() => runCommand("palette")}>
         Commands <kbd>Ctrl K</kbd>
       </button>
-      <span className="pill" title="MCP server status" onClick={() => ui.set({ rightTab: "agent" })}>
+      <span className="pill" data-tip="MCP server status" onClick={() => ui.set({ rightTab: "agent" })}>
         <span className={mcp?.running ? "dot" : "dot off"} />
         MCP · {mcp?.running ? "on" : "off"}
       </span>
@@ -44,11 +44,11 @@ export function StatusBar() {
   return (
     <div id="status">
       <span>{s.dirty ? "○ Unsaved changes" : s.path ? "● Saved" : "● No changes"}</span>
-      <span>History: {s.history_len}</span>
-      <span>{sequence.clips.length} clips</span>
+      <span data-tip="Edits you can undo with Ctrl+Z. Undo and redo are in the top bar.">History: {s.history_len}</span>
+      <span data-tip="Clips on the timeline, across all tracks">{sequence.clips.length} clips</span>
       <ExportBadge />
       <span className="sp" />
-      <span className="link" title="Project settings" onClick={() => runCommand("projectsettings")}>
+      <span className="link" data-tip="Project settings" onClick={() => runCommand("projectsettings")}>
         {settings.width}×{settings.height} · {fpsOf(s.project)} fps
       </span>
       <span>
@@ -84,6 +84,7 @@ function Palette() {
         id="palq"
         ref={input}
         placeholder="Type a command…"
+        data-tip="Type to filter. Arrow keys pick a command, Enter runs it."
         value={query}
         onChange={(e) => {
           setQuery(e.target.value);
@@ -114,7 +115,7 @@ function Shortcuts() {
     <div className="modal wide">
       <header>
         <span>Keyboard shortcuts</span>
-        <button className="ghost" onClick={() => ui.set({ overlay: null })}>✕</button>
+        <button className="ghost" data-tip="Close" onClick={() => ui.set({ overlay: null })}>✕</button>
       </header>
       <div className="body sc">
         {COMMANDS.filter((c) => c.keys).map((c) => (

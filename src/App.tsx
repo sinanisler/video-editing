@@ -7,6 +7,8 @@ import { LeftPanel } from "./components/LeftPanel";
 import { Preview } from "./components/Preview";
 import { RightPanel } from "./components/RightPanel";
 import { Timeline } from "./components/Timeline";
+import { Tooltip } from "./components/Tooltip";
+import { ContextMenu } from "./components/ContextMenu";
 import { initExport } from "./export";
 import { core, init, ui } from "./store";
 
@@ -49,9 +51,13 @@ export function App() {
       .then(initExport)
       .catch((e) => setError(String(e)));
     window.addEventListener("keydown", handleKey);
+    // The browser menu (Reload, Print, Inspect) has no place in the editor. Text fields keep theirs for copy and paste.
+    const noMenu = (e: MouseEvent) => !/^(input|textarea)$/i.test((e.target as HTMLElement).tagName) && e.preventDefault();
+    window.addEventListener("contextmenu", noMenu);
     const drops = listenForFileDrops();
     return () => {
       window.removeEventListener("keydown", handleKey);
+      window.removeEventListener("contextmenu", noMenu);
       drops.then((stop) => stop());
     };
   }, []);
@@ -78,6 +84,8 @@ export function App() {
       <StatusBar />
       <Overlays />
       <DragFeedback />
+      <Tooltip />
+      <ContextMenu />
     </div>
   );
 }

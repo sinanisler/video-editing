@@ -1,8 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { runCommand, splitAt, timelineApi } from "../commands";
 import { core, exec, seek, toast, ui } from "../store";
-import type { Clip, Sequence, Track } from "../types";
-import { clamp, clipClass, clipEnd, fits, fpsOf, MAX_PPS, MIN_PPS, mmss, timelineFrames, trackHeight } from "../util";
+import type { Clip, Sequence } from "../types";
+import { clamp, clipClass, clipEnd, fits, fpsOf, MAX_PPS, MIN_PPS, mmss, timecode, timelineFrames, trackHeight } from "../util";
+import { openTrackMenu, Splitter, SPLITTER_PX, TrackHead } from "./Tracks";
 
 const SNAP_PX = 8;
 const DRAG_PX = 4;
@@ -51,31 +52,6 @@ function Playhead({ ppf, scroller }: { ppf: number; scroller: React.RefObject<HT
   return <div id="playhead" style={{ left: x }} />;
 }
 
-/** Track name; double-click to rename. */
-function TrackName({ t }: { t: Track }) {
-  const [editing, setEditing] = useState(false);
-  if (!editing) {
-    return (
-      <span className="n" title="Double-click to rename" onDoubleClick={() => setEditing(true)}>
-        {t.name}
-      </span>
-    );
-  }
-  return (
-    <input
-      className="n"
-      autoFocus
-      defaultValue={t.name}
-      onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-      onBlur={(e) => {
-        setEditing(false);
-        const name = e.target.value.trim();
-        if (name && name !== t.name) exec("timeline.rename_track", { track: t.id, name });
-      }}
-    />
-  );
-}
-
 function Toolbar({ selected, fps }: { selected: Clip[]; fps: number }) {
   const tool = ui.use((s) => s.tool);
   const snap = ui.use((s) => s.snap);
@@ -84,23 +60,23 @@ function Toolbar({ selected, fps }: { selected: Clip[]; fps: number }) {
   const one = selected.length === 1 ? selected[0] : null;
   return (
     <div id="tlbar">
-      <button className={tool === "select" ? "on" : ""} title="Selection tool (V)" onClick={() => runCommand("select")}>
+      <button className={tool === "select" ? "on" : ""} data-tip="Selection tool (V)" onClick={() => runCommand("select")}>
         ↖ Select
       </button>
-      <button className={tool === "razor" ? "on" : ""} title="Razor tool (C)" onClick={() => runCommand("razor")}>
+      <button className={tool === "razor" ? "on" : ""} data-tip="Razor tool (C)" onClick={() => runCommand("razor")}>
         ✂ Razor
       </button>
       <span className="sep" />
-      <button title="Split at playhead (Ctrl+B)" onClick={() => runCommand("split")}>Split</button>
-      <button title="Delete (Del)" onClick={() => runCommand("delete")}>Delete</button>
-      <button title="Ripple delete (Shift+Del)" onClick={() => runCommand("ripple")}>Ripple delete</button>
-      <button title="Duplicate (Ctrl+D)" onClick={() => runCommand("duplicate")}>Duplicate</button>
-      <button title="Add marker (M)" onClick={() => runCommand("marker")}>◆ Marker</button>
+      <button data-tip="Split at playhead (Ctrl+B)" onClick={() => runCommand("split")}>Split</button>
+      <button data-tip="Delete (Del)" onClick={() => runCommand("delete")}>Delete</button>
+      <button data-tip="Ripple delete (Shift+Del)" onClick={() => runCommand("ripple")}>Ripple delete</button>
+      <button data-tip="Duplicate (Ctrl+D)" onClick={() => runCommand("duplicate")}>Duplicate</button>
+      <button data-tip="Add marker (M)" onClick={() => runCommand("marker")}>◆ Marker</button>
       <span className="sep" />
-      <button className={snap ? "on" : ""} title="Snapping (N)" onClick={() => runCommand("snap")}>⌁ Snap</button>
+      <button className={snap ? "on" : ""} data-tip="Snapping (N)" onClick={() => runCommand("snap")}>⌁ Snap</button>
       <button
         className={showPace ? "on" : ""}
-        title="Pace lane: cuts per 10 seconds on the lowest video track"
+        data-tip="Pace lane: cuts per 10 seconds on the lowest video track"
         onClick={() => ui.set({ showPace: !showPace })}
       >
         ▥ Pace
@@ -111,20 +87,20 @@ function Toolbar({ selected, fps }: { selected: Clip[]; fps: number }) {
         {selected.length > 1 && `${selected.length} clips selected`}
       </span>
       <span className="sep" />
-      <button title="Zoom out (-)" onClick={() => runCommand("zoomout")}>−</button>
+      <button data-tip="Zoom out (-)" onClick={() => runCommand("zoomout")}>−</button>
       {/* Logarithmic, so each bit of travel zooms by the same factor at any scale. */}
       <input
         className="zoom"
         type="range"
-        title="Zoom (Ctrl + mouse wheel)"
+        data-tip="Zoom (Ctrl + mouse wheel)"
         min={Math.log(MIN_PPS)}
         max={Math.log(MAX_PPS)}
         step={0.01}
         value={Math.log(pps)}
         onChange={(e) => ui.set({ pps: Math.exp(+e.target.value) })}
       />
-      <button title="Zoom in (+)" onClick={() => runCommand("zoomin")}>+</button>
-      <button title="Fit timeline (Shift+Z)" onClick={() => runCommand("fit")}>Fit</button>
+      <button data-tip="Zoom in (+)" onClick={() => runCommand("zoomin")}>+</button>
+      <button data-tip="Fit timeline (Shift+Z)" onClick={() => runCommand("fit")}>Fit</button>
     </div>
   );
 }
@@ -148,7 +124,7 @@ function PaceLane({ seq, fps, ppf, total }: { seq: Sequence; fps: number; ppf: n
         key={f}
         className="cell"
         style={{ left: f * ppf + 1, width: win * ppf - 2, background: PACE_COLOURS[Math.min(n, 3)] }}
-        title={`${mmss(f / fps)}–${mmss((f + win) / fps)}: ${n} cut${n === 1 ? "" : "s"}`}
+        data-tip={`${mmss(f / fps)}–${mmss((f + win) / fps)}: ${n} cut${n === 1 ? "" : "s"}`}
       >
         {n}
       </div>,
@@ -164,6 +140,13 @@ export function Timeline() {
   const snap = ui.use((s) => s.snap);
   const selection = ui.use((s) => s.selection);
   const showPace = ui.use((s) => s.showPace);
+  const videoH = ui.use((s) => s.videoH);
+  const audioH = ui.use((s) => s.audioH);
+  const heights = ui.use((s) => s.trackHeights);
+  const collapsed = ui.use((s) => s.collapsed);
+  const colours = ui.use((s) => s.trackColors);
+  const targetId = ui.use((s) => s.targetTrack);
+  const layout = { videoH, audioH, heights, collapsed };
 
   const p = state.project;
   const seq = p.sequence;
@@ -178,6 +161,8 @@ export function Timeline() {
   const [ghosts, setGhosts] = useState<Ghosts>({});
   const [snapX, setSnapX] = useState<number | null>(null);
   const [marquee, setMarquee] = useState<Box | null>(null);
+  /** Where a razor click would cut, shown as a line while the razor tool is equipped. */
+  const [cutFrame, setCutFrame] = useState<number | null>(null);
 
   // Window-level pointer handlers read the latest values from here.
   const live = useRef({ seq, ppf, total, snap, fps });
@@ -345,19 +330,27 @@ export function Timeline() {
   const onLanesDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
+    // Any press on a lane makes that track the paste target.
+    const lane = target.closest<HTMLElement>("[data-track]");
+    if (lane?.dataset.track) ui.set({ targetTrack: lane.dataset.track });
     const el = target.closest<HTMLElement>(".clip");
     const c = seq.clips.find((x) => x.id === el?.dataset.id);
     const extend = e.ctrlKey || e.metaKey || e.shiftKey;
+    // Razor tool, or Alt held with any tool: a click cuts at the pointer, no playhead needed.
+    // Shift cuts every unlocked track at that frame, as Premiere's Shift+razor does.
+    if (tool === "razor" || e.altKey) {
+      const at = snapTarget(frameAt(e.clientX), c ? [c.id] : []) ?? frameAt(e.clientX);
+      if (e.shiftKey) return exec("timeline.split_clip", { at });
+      if (!c) return;
+      ui.set({ selection: [c.id] });
+      splitAt(at, c.id);
+      return;
+    }
     if (!c) {
       drag.current = { mode: "marquee", x0: e.clientX, y0: e.clientY, additive: extend ? selection : [], moved: false };
       return;
     }
     const at = frameAt(e.clientX);
-    if (tool === "razor") {
-      ui.set({ selection: [c.id] });
-      splitAt(snapTarget(at, [c.id]) ?? at, c.id);
-      return;
-    }
     if (extend) {
       // Ctrl or Shift click adds the clip to the selection, or takes it out.
       ui.set({ selection: selection.includes(c.id) ? selection.filter((id) => id !== c.id) : [...selection, c.id] });
@@ -382,6 +375,9 @@ export function Timeline() {
   const stepS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 14400].find((s) => s * pps >= 80) ?? 28800;
   const ticks = [];
   for (let s = 0; s * fps <= total; s += stepS) ticks.push(s);
+  // The divider sits above the first audio track, when there are video tracks above it.
+  const firstAudio = seq.tracks.findIndex((t) => t.kind === "audio");
+  const splitIndex = firstAudio > 0 ? firstAudio : -1;
   const range = seq.in_point !== null && seq.out_point !== null && seq.out_point > seq.in_point;
 
   return (
@@ -390,47 +386,25 @@ export function Timeline() {
       <div id="tlbody">
         <div id="heads">
           <div className="hd corner" style={{ height: 28 }}>
-            <button title="Add a video track" onClick={() => exec("timeline.add_track", { kind: "video" })}>+ Video</button>
-            <button title="Add an audio track" onClick={() => exec("timeline.add_track", { kind: "audio" })}>+ Audio</button>
+            <button data-tip="Add a video track" onClick={() => exec("timeline.add_track", { kind: "video" })}>+ Video</button>
+            <button data-tip="Add an audio track" onClick={() => exec("timeline.add_track", { kind: "audio" })}>+ Audio</button>
           </div>
           {showPace && (
-            <div className="hd ana" style={{ height: 24 }} title="Cuts on the lowest video track per 10 seconds">
+            <div className="hd ana" style={{ height: 24 }} data-tip="Cuts on the lowest video track per 10 seconds">
               Pace · cuts / 10 s
             </div>
           )}
-          {seq.tracks.map((t) => {
-            const flag = t.kind === "audio" ? "muted" : "hidden";
-            return (
-              <div key={t.id} className="hd" style={{ height: trackHeight(t) }}>
-                <b>{t.id}</b>
-                <TrackName t={t} />
-                {!seq.clips.some((c) => c.track === t.id) && (
-                  <button className="rm" title="Remove this empty track" onClick={() => exec("timeline.remove_track", { track: t.id })}>
-                    ✕
-                  </button>
-                )}
-                <button
-                  className={t.locked ? "on" : ""}
-                  title="Lock track"
-                  onClick={() => exec("timeline.set_track_state", { track: t.id, locked: !t.locked })}
-                >
-                  L
-                </button>
-                <button
-                  className={t[flag] ? "on" : ""}
-                  title={flag === "muted" ? "Mute track" : "Hide track"}
-                  onClick={() => exec("timeline.set_track_state", { track: t.id, [flag]: !t[flag] })}
-                >
-                  {flag === "muted" ? "M" : "H"}
-                </button>
-              </div>
-            );
-          })}
+          {seq.tracks.map((t, i) => (
+            <Fragment key={t.id}>
+              {i === splitIndex && <div className="splitpad" style={{ height: SPLITTER_PX }}><Splitter tracks={seq.tracks} /></div>}
+              <TrackHead t={t} seq={seq} height={trackHeight(t, layout)} />
+            </Fragment>
+          ))}
         </div>
 
         <div id="scroll" ref={scroller}>
           <div id="content" ref={content} style={{ width: total * ppf + 40 }}>
-            <div id="ruler" onPointerDown={onRulerDown}>
+            <div id="ruler" data-tip="Click or drag to move the playhead. Markers: double-click one to remove it." onPointerDown={onRulerDown}>
               {range && (
                 <div className="range" style={{ left: seq.in_point! * ppf, width: (seq.out_point! - seq.in_point!) * ppf }} />
               )}
@@ -444,7 +418,7 @@ export function Timeline() {
                   key={m.id}
                   className={`marker ${m.actor && m.actor !== "user" ? "agent" : ""}`}
                   style={{ left: m.at * ppf }}
-                  title={`${m.label} · double-click to remove`}
+                  data-tip={`${m.label} · double-click to remove`}
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={() => seek(m.at)}
                   onDoubleClick={() => exec("timeline.remove_marker", { marker: m.id })}
@@ -452,14 +426,22 @@ export function Timeline() {
               ))}
             </div>
 
-            <div id="lanes" onPointerDown={onLanesDown}>
+            <div
+              id="lanes"
+              data-tip="Drag across empty space to select several clips. Click to select one. Drag a clip to move it."
+              onPointerDown={onLanesDown}
+              onPointerMove={(e) => tool === "razor" && setCutFrame(snapTarget(frameAt(e.clientX)) ?? frameAt(e.clientX))}
+              onPointerLeave={() => setCutFrame(null)}
+            >
               {showPace && <PaceLane seq={seq} fps={fps} ppf={ppf} total={total} />}
-              {seq.tracks.map((t) => (
+              {seq.tracks.map((t, i) => (
+                <Fragment key={t.id}>
+                {i === splitIndex && <div className="splitpad" style={{ height: SPLITTER_PX }}><Splitter tracks={seq.tracks} /></div>}
                 <div
-                  key={t.id}
                   data-track={t.id}
-                  className={`lane ${t.locked ? "locked" : ""} ${t.muted || t.hidden ? "dim" : ""}`}
-                  style={{ height: trackHeight(t) }}
+                  className={`lane ${t.locked ? "locked" : ""} ${t.muted || t.hidden ? "dim" : ""} ${layout.collapsed[t.id] ? "mini" : ""} ${targetId === t.id ? "target" : ""}`}
+                  style={{ height: trackHeight(t, layout), boxShadow: colours[t.id] ? `inset 3px 0 0 ${colours[t.id]}` : undefined }}
+                  onContextMenu={(e) => openTrackMenu(e, t, seq)}
                 >
                   {clips
                     .filter((c) => c.track === t.id)
@@ -471,10 +453,10 @@ export function Timeline() {
                           data-id={c.id}
                           className={`clip ${clipClass(c, seq.tracks)} ${selection.includes(c.id) ? "sel" : ""}`}
                           style={{ left: c.start * ppf, width: Math.max(3, c.duration * ppf - 1) }}
-                          title={byAgent ? `${c.name} · last changed by ${c.last_actor}` : c.name}
+                          data-tip={byAgent ? `${c.name} · last changed by ${c.last_actor}` : c.name}
                         >
-                          {c.transition_in && <span className="tr" title={c.transition_in.name} />}
-                          <span className="h hl" />
+                          {c.transition_in && <span className="tr" data-tip={c.transition_in.name} />}
+                          <span className="h hl" data-tip="Drag to trim the start of the clip" />
                           <span className="nm" style={c.transition_in ? { paddingLeft: 16 } : undefined}>
                             {(c.kind === "graphic" || c.kind === "caption") && c.text ? c.text : c.name}
                           </span>
@@ -482,17 +464,21 @@ export function Timeline() {
                             {c.effects.length > 0 && <i>fx {c.effects.length}</i>}
                             {byAgent && <i className="ag">✦</i>}
                           </span>
-                          {c.transition_out && <span className="tr out" title={c.transition_out.name} />}
-                          <span className="h hr" />
+                          {c.transition_out && <span className="tr out" data-tip={c.transition_out.name} />}
+                          <span className="h hr" data-tip="Drag to trim the end of the clip" />
                         </div>
                       );
                     })}
                 </div>
+                </Fragment>
               ))}
             </div>
 
             {marquee && <div id="marquee" style={{ left: marquee.x, top: marquee.y, width: marquee.w, height: marquee.h }} />}
             {snapX !== null && <div id="snapline" style={{ left: snapX }} />}
+            {tool === "razor" && cutFrame !== null && (
+              <div className="cutline" style={{ left: cutFrame * ppf }} data-label={timecode(cutFrame, fps)} />
+            )}
             <Playhead ppf={ppf} scroller={scroller} />
           </div>
         </div>

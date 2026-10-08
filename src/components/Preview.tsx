@@ -300,9 +300,9 @@ function Stage() {
             >
               <i className="edge" />
               {["tl", "tr", "bl", "br"].map((h) => (
-                <i key={h} className={`hnd ${h}`} data-handle={h} title="Drag to scale" />
+                <i key={h} className={`hnd ${h}`} data-handle={h} data-tip="Drag to scale" />
               ))}
-              <i className="hnd rot" data-handle="rot" title="Drag to rotate (Shift: 15° steps)" />
+              <i className="hnd rot" data-handle="rot" data-tip="Drag to rotate (Shift: 15° steps)" />
             </div>
           </div>
         )}
@@ -321,21 +321,21 @@ function Transport() {
   const end = p.sequence.clips.reduce((m, c) => Math.max(m, clipEnd(c)), 0);
   return (
     <div id="transport">
-      <span id="tc">{timecode(frame, fps)}</span>
-      <span className="mono dim">/ {timecode(end, fps)}</span>
+      <span id="tc" data-tip="Playhead position: hours, minutes, seconds and frames">{timecode(frame, fps)}</span>
+      <span className="mono dim" data-tip="Length of the edit: where the last clip ends">/ {timecode(end, fps)}</span>
       <span className="sp" />
-      <button title="Go to start (Home)" onClick={() => runCommand("home")}>⏮</button>
-      <button title="Back one frame (←)" onClick={() => runCommand("back")}>◀</button>
-      <button className="primary" title="Play / pause (Space)" onClick={() => runCommand("play")}>
+      <button data-tip="Go to start (Home)" onClick={() => runCommand("home")}>⏮</button>
+      <button data-tip="Back one frame (←)" onClick={() => runCommand("back")}>◀</button>
+      <button className="primary" data-tip="Play / pause (Space)" onClick={() => runCommand("play")}>
         {playing ? "❚❚" : "▶"}
       </button>
-      <button title="Forward one frame (→)" onClick={() => runCommand("fwd")}>▶</button>
-      <button title="Go to end (End)" onClick={() => runCommand("end")}>⏭</button>
-      <span className="mono dim rate">{rate}×</span>
+      <button data-tip="Forward one frame (→)" onClick={() => runCommand("fwd")}>▶</button>
+      <button data-tip="Go to end (End)" onClick={() => runCommand("end")}>⏭</button>
+      <span className="mono dim rate" data-tip="Playback speed">{rate}×</span>
       <span className="sp" />
-      <button title="Mark in (I)" onClick={() => runCommand("in")}>I</button>
-      <button title="Mark out (O)" onClick={() => runCommand("out")}>O</button>
-      <button className={safeArea ? "on" : ""} title="Safe area guides" onClick={() => ui.set({ safeArea: !safeArea })}>
+      <button data-tip="Mark in (I)" onClick={() => runCommand("in")}>I</button>
+      <button data-tip="Mark out (O)" onClick={() => runCommand("out")}>O</button>
+      <button className={safeArea ? "on" : ""} data-tip="Safe area guides" onClick={() => ui.set({ safeArea: !safeArea })}>
         ▢
       </button>
     </div>

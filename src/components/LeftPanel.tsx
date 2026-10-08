@@ -5,6 +5,14 @@ import type { MediaItem } from "../types";
 import { clipEnd, fpsOf, timecode } from "../util";
 import { Tabs } from "./Tabs";
 
+/** What the import dialog accepts. Shown in the Import tooltip and under the media list. */
+const FORMATS = [
+  ["Video", "MP4, MOV, M4V, MKV, WebM"],
+  ["Audio", "MP3, WAV, M4A, AAC, OGG, FLAC"],
+  ["Images", "PNG, JPG, WebP, GIF"],
+] as const;
+const IMPORT_TIP = `Import video, audio and image files.\n${FORMATS.map(([kind, list]) => `${kind}: ${list}`).join("\n")}`;
+
 export const TEXT_TEMPLATES = [
   { id: "title", name: "Title card", text: "TITLE", hint: "Big title in the centre" },
   { id: "subscribe", name: "Subscribe card", text: "Subscribe", hint: "Avatar and button card" },
@@ -13,9 +21,9 @@ export const TEXT_TEMPLATES = [
   { id: "lower", name: "Lower third", text: "Name", hint: "Name or handle label" },
 ];
 
-function Tile(props: { name: string; hint: string; colour: string; onClick: () => void }) {
+function Tile(props: { name: string; hint: string; tip: string; colour: string; onClick: () => void }) {
   return (
-    <div className="tile" onClick={props.onClick}>
+    <div className="tile" data-tip={props.tip} onClick={props.onClick}>
       <span className="ic" style={{ background: props.colour }}>{props.name[0]}</span>
       <span>
         {props.name}
@@ -82,28 +90,30 @@ function startMediaDrag(e: React.PointerEvent, m: MediaItem) {
 function MediaPool() {
   const p = core.use((s) => s.state)!.project;
   const fps = fpsOf(p);
+  const importButton = <button className="primary wide" data-tip={IMPORT_TIP} onClick={importMedia}>Import files…</button>;
   return (
     <>
-      <button className="primary wide" onClick={importMedia}>Import files…</button>
       {p.media.length === 0 ? (
         <div className="empty">
           <b>No media yet</b>
-          <p>Choose files with the button above, or drag them from a folder onto this panel or straight onto the timeline.</p>
+          <p>Choose files with the button below, or drag them from a folder onto this panel or straight onto the timeline.</p>
+          {importButton}
         </div>
       ) : (
         <>
+          {importButton}
           <p className="hint">Drag onto the timeline, or double-click to add at the playhead.</p>
           <div className="media">
             {p.media.map((m) => (
               <div
                 key={m.id}
                 className="mi"
-                title={m.path}
+                data-tip={m.path}
                 onPointerDown={(e) => startMediaDrag(e, m)}
                 onDoubleClick={() => addMediaClip(m, ui.get().frame)}
               >
                 <Thumb m={m} />
-                <button className="rm" title="Remove from project" onClick={() => exec("media.remove", { media: m.id })}>✕</button>
+                <button className="rm" data-tip="Remove from project. Clips already on the timeline stay." onClick={() => exec("media.remove", { media: m.id })}>✕</button>
                 <div className="nm">{m.name}</div>
                 <div className="meta">
                   {m.kind === "image" ? "image" : timecode(m.duration, fps)}
@@ -114,13 +124,6 @@ function MediaPool() {
           </div>
         </>
       )}
-      <div className="formats">
-        <b>Supported files</b>
-        <span>Video: MP4, MOV, M4V, MKV, WebM</span>
-        <span>Audio: MP3, WAV, M4A, AAC, OGG, FLAC</span>
-        <span>Images: PNG, JPG, WebP, GIF</span>
-        <span className="dim">MP4 with H.264 video and AAC audio works best. A file whose codec this PC cannot decode is rejected on import.</span>
-      </div>
     </>
   );
 }
@@ -135,10 +138,10 @@ export function LeftPanel() {
         value={tab}
         onChange={(leftTab) => ui.set({ leftTab })}
         tabs={[
-          ["media", "Media"],
-          ["text", "Text"],
-          ["transitions", "Transitions"],
-          ["effects", "Effects"],
+          ["media", "Media", "Import files and place them on the timeline"],
+          ["text", "Text", "Title cards, counters and lower thirds"],
+          ["transitions", "Transitions", "Blends between clips, at their start or end"],
+          ["effects", "Effects", "Looks and filters for the selected clips"],
         ]}
       />
       <div className="pane">
@@ -147,7 +150,7 @@ export function LeftPanel() {
           <>
             <p className="hint">Click to add at the playhead.</p>
             {TEXT_TEMPLATES.map((t) => (
-              <Tile key={t.id} name={t.name} hint={t.hint} colour="var(--k-gfx)" onClick={() => addGraphic(t)} />
+              <Tile key={t.id} name={t.name} hint={t.hint} tip={`Add a 3 second ${t.name.toLowerCase()} at the playhead, on the top free video track.`} colour="var(--k-gfx)" onClick={() => addGraphic(t)} />
             ))}
           </>
         )}
@@ -155,14 +158,15 @@ export function LeftPanel() {
           <>
             <p className="hint">Select one or more clips, then click a transition.</p>
             <div className="seg">
-              <button className={edge === "in" ? "on" : ""} onClick={() => ui.set({ transitionEdge: "in" })}>At clip start</button>
-              <button className={edge === "out" ? "on" : ""} onClick={() => ui.set({ transitionEdge: "out" })}>At clip end</button>
+              <button className={edge === "in" ? "on" : ""} data-tip="Put the transition where each selected clip starts" onClick={() => ui.set({ transitionEdge: "in" })}>At clip start</button>
+              <button className={edge === "out" ? "on" : ""} data-tip="Put the transition where each selected clip ends" onClick={() => ui.set({ transitionEdge: "out" })}>At clip end</button>
             </div>
             {[{ name: "Cut", hint: "Remove the transition" }, ...lib.transitions].map((t) => (
               <Tile
                 key={t.name}
                 name={t.name}
                 hint={t.hint}
+                tip={`${t.name === "Cut" ? "Remove the transition from" : `Apply ${t.name} to`} the selected clips at ${edge === "in" ? "their start" : "their end"}.`}
                 colour="var(--k-pip)"
                 onClick={() => onSelection("clip.set_transition", { edge, transition: t.name === "Cut" ? null : t.name })}
               />
@@ -177,6 +181,7 @@ export function LeftPanel() {
                 key={t.name}
                 name={t.name}
                 hint={t.hint}
+                tip={`Apply ${t.name} to the selected clips. Set its strength in the Inspector.`}
                 colour="var(--k-video)"
                 onClick={() => onSelection("clip.add_effect", { effect: t.name })}
               />

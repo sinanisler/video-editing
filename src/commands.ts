@@ -101,6 +101,42 @@ async function duplicate(clips: Clip[], delta: number) {
 
 let clipboard: string[] = [];
 
+/**
+ * Pastes copied clips onto the paste-target track, keeping their layout relative to it: a copy from V1 landing
+ * on V2 stays on V2 and the next track up for a clip that was one track up. The copies are made beyond the end of
+ * the timeline first, because a copy cannot be placed over its own source, then moved into place.
+ */
+async function pasteTo(target: string, copied: Clip[], delta: number) {
+  const p = project();
+  if (!p) return;
+  const tracks = p.sequence.tracks;
+  const ofKind = (kind: string) => tracks.filter((t) => t.kind === kind);
+  const trackOf = (c: Clip) => tracks.find((t) => t.id === c.track)!;
+  const first = copied.reduce((a, c) => (c.start < a.start ? c : a));
+  const kind = trackOf(first).kind;
+  const dest = tracks.find((t) => t.id === target);
+  if (!dest) return;
+  if (dest.kind !== kind) return toast(`The copied clips are ${kind} clips. Make a ${kind} track the paste target.`);
+  const offset = ofKind(kind).findIndex((t) => t.id === target) - ofKind(kind).findIndex((t) => t.id === first.track);
+  const landing = copied.map((c) => {
+    const list = ofKind(trackOf(c).kind);
+    return list[list.findIndex((t) => t.id === c.track) + offset];
+  });
+  if (landing.some((t) => !t)) return toast("Some copies would land past the last track");
+  if (landing.some((t) => t!.locked)) return toast("A track the copies would land on is locked");
+
+  const end = Math.max(0, ...allClips().map(clipEnd)) + fps();
+  const made = await exec("timeline.duplicate_clips", { clips: copied.map((c) => c.id), delta: end - first.start });
+  if (!made) return;
+  const ids = made.created as string[];
+  const moved = await execBatch(
+    ids.map((id, i) => ({ tool: "timeline.move_clip", args: { clip: id, start: copied[i].start + delta, track: landing[i]!.id } })),
+  );
+  // Blocked by a clip already there: take the copies back out so nothing is left half pasted.
+  if (!moved) await undo();
+  else toast("Pasted");
+}
+
 /** Removes the time between the playhead and the nearest edit point on one side, closing the gap. */
 function rippleTrim(side: "before" | "after") {
   const at = frame();
@@ -131,6 +167,7 @@ export const COMMANDS: EditorCommand[] = [
   { id: "deselect", title: "Deselect all", keys: ["Ctrl+Shift+A"], run: () => ui.set({ selection: [] }) },
 
   { id: "split", title: "Split at playhead", keys: ["Ctrl+B", "S"], run: () => splitAt(frame()) },
+  { id: "splitall", title: "Split every unlocked track at playhead", keys: ["Ctrl+Shift+B"], run: () => exec("timeline.split_clip", { at: frame() }) },
   { id: "delete", title: "Delete selected clips", keys: ["Delete", "Backspace"], run: () => onSelected("timeline.delete_clip") },
   { id: "ripple", title: "Ripple delete selected clips", keys: ["Shift+Delete"], run: () => onSelected("timeline.ripple_delete_clip") },
   { id: "trimstart", title: "Ripple trim: previous edit point to playhead", keys: ["Q"], run: () => rippleTrim("before") },
@@ -162,7 +199,10 @@ export const COMMANDS: EditorCommand[] = [
     run: () => {
       const clips = allClips().filter((c) => clipboard.includes(c.id));
       if (!clips.length) return toast("Nothing to paste; the copied clips no longer exist");
-      duplicate(clips, frame() - Math.min(...clips.map((c) => c.start)));
+      const delta = frame() - Math.min(...clips.map((c) => c.start));
+      const target = ui.get().targetTrack;
+      if (target) pasteTo(target, clips, delta);
+      else duplicate(clips, delta);
     },
   },
   { id: "nudgeleft", title: "Nudge selection one frame left", keys: ["Alt+Left"], run: () => nudge(-1) },

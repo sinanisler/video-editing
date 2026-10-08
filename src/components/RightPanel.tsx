@@ -28,6 +28,7 @@ function NumberField(props: {
   const latest = useRef(value);
   const digits = decimals(step);
   const snap = (v: number) => clamp(Math.round(v / step) * step, min, max);
+  const range = `${min} to ${max}${unit ? ` ${unit}` : ""}`;
 
   const live = (v: number) => {
     latest.current = snap(v);
@@ -66,7 +67,7 @@ function NumberField(props: {
 
   return (
     <div className="row num">
-      <span className={changed ? "lbl changed" : "lbl"} title="Double-click to reset" onDoubleClick={() => onCommit(null)}>
+      <span className={changed ? "lbl changed" : "lbl"} data-tip="Double-click to reset" onDoubleClick={() => onCommit(null)}>
         {label}
       </span>
       <input
@@ -75,15 +76,23 @@ function NumberField(props: {
         max={max}
         step={step}
         value={value}
+        data-tip={`${label}: ${range}. Drag to set it, or use the number to type a value.`}
         onChange={(e) => live(+e.target.value)}
         onPointerUp={() => onCommit(latest.current)}
         onKeyUp={() => onCommit(latest.current)}
       />
       {typing === null ? (
-        <input className="scrub" readOnly value={value.toFixed(digits)} title="Drag to change, click to type" onPointerDown={startScrub} />
+        <input
+          className="scrub"
+          readOnly
+          value={value.toFixed(digits)}
+          data-tip={`${label}: drag sideways to change it. Click to type an exact value (${range}). Shift: coarse, Alt: fine.`}
+          onPointerDown={startScrub}
+        />
       ) : (
         <input
           className="scrub typing"
+          data-tip="Type a value, then press Enter to apply or Esc to cancel"
           autoFocus
           value={typing}
           onFocus={(e) => e.target.select()}
@@ -106,7 +115,7 @@ function NumberField(props: {
 function Row({ label, changed, onReset, children }: { label: string; changed?: boolean; onReset?: () => void; children: React.ReactNode }) {
   return (
     <div className="row">
-      <span className={changed ? "lbl changed" : "lbl"} title={onReset && "Double-click to reset"} onDoubleClick={onReset}>
+      <span className={changed ? "lbl changed" : "lbl"} data-tip={onReset && "Double-click to reset"} onDoubleClick={onReset}>
         {label}
       </span>
       {children}
@@ -115,10 +124,11 @@ function Row({ label, changed, onReset, children }: { label: string; changed?: b
 }
 
 /** Text that commits on blur or Enter, so typing does not create an undo step per keystroke. */
-function TextField({ value, multiline, onCommit }: { value: string; multiline?: boolean; onCommit?: (v: string) => void }) {
+function TextField({ value, multiline, tip, onCommit }: { value: string; multiline?: boolean; tip: string; onCommit?: (v: string) => void }) {
   const common = {
     defaultValue: value,
     readOnly: !onCommit,
+    "data-tip": tip,
     onBlur: (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => e.target.value !== value && onCommit?.(e.target.value),
   };
   // Re-mount when the stored value changes, so undo and agent edits show up.
@@ -148,7 +158,12 @@ function TransitionRows({ c, edge, value }: { c: Clip; edge: "in" | "out"; value
   return (
     <>
       <Row label={edge === "in" ? "At start" : "At end"} changed={!!value} onReset={() => set(null)}>
-        <select className="span" value={value?.name ?? "Cut"} onChange={(e) => set(e.target.value === "Cut" ? null : e.target.value, value?.duration)}>
+        <select
+          className="span"
+          data-tip={`Transition ${edge === "in" ? "at the start" : "at the end"} of this clip. Cut means none.`}
+          value={value?.name ?? "Cut"}
+          onChange={(e) => set(e.target.value === "Cut" ? null : e.target.value, value?.duration)}
+        >
           <option>Cut</option>
           {lib.transitions.map((t) => (
             <option key={t.name}>{t.name}</option>
@@ -223,13 +238,18 @@ function Inspector() {
       case "bool":
         return (
           <Row key={d.key} label={d.label} changed={changed} onReset={reset}>
-            <input type="checkbox" checked={r.b(d.key)} onChange={(e) => commit(c.id, { [d.key]: e.target.checked })} />
+            <input
+              type="checkbox"
+              data-tip={`${d.label}: tick to turn on`}
+              checked={r.b(d.key)}
+              onChange={(e) => commit(c.id, { [d.key]: e.target.checked })}
+            />
           </Row>
         );
       case "choice":
         return (
           <Row key={d.key} label={d.label} changed={changed} onReset={reset}>
-            <select className="span" value={r.s(d.key)} onChange={(e) => commit(c.id, { [d.key]: e.target.value })}>
+            <select className="span" data-tip={d.label} value={r.s(d.key)} onChange={(e) => commit(c.id, { [d.key]: e.target.value })}>
               {d.options.map((o) => (
                 <option key={o}>{o}</option>
               ))}
@@ -241,6 +261,7 @@ function Inspector() {
           <Row key={d.key} label={d.label} changed={changed} onReset={reset}>
             <input
               type="color"
+              data-tip={`${d.label}: click to pick a colour`}
               value={r.s(d.key)}
               onInput={(e) => preview(c.id, { [d.key]: e.currentTarget.value })}
               onChange={(e) => commit(c.id, { [d.key]: e.target.value })}
@@ -255,20 +276,20 @@ function Inspector() {
     <div key={c.id} className="insp">
       <h4>Clip</h4>
       <Row label="Name">
-        <TextField value={c.name} onCommit={(v) => exec("clip.set_property", { clip: c.id, key: "name", value: v })} />
+        <TextField value={c.name} tip="The clip's name. Type a new one and press Enter." onCommit={(v) => exec("clip.set_property", { clip: c.id, key: "name", value: v })} />
       </Row>
       <Row label="Track">
-        <TextField value={`${c.track} · ${track?.name ?? ""}`} />
+        <TextField value={`${c.track} · ${track?.name ?? ""}`} tip="The track this clip sits on. Drag the clip on the timeline to move it to another track." />
       </Row>
       <Row label="Start">
-        <TextField value={timecode(c.start, fps)} />
+        <TextField value={timecode(c.start, fps)} tip="Where the clip starts on the timeline. Drag the clip to move it." />
       </Row>
       <Row label="Duration">
-        <TextField value={timecode(c.duration, fps)} />
+        <TextField value={timecode(c.duration, fps)} tip="How long the clip plays. Drag its left or right edge on the timeline to trim it." />
       </Row>
       {isText && (
         <Row label="Content">
-          <TextField multiline value={c.text ?? ""} onCommit={(v) => exec("clip.set_property", { clip: c.id, key: "text", value: v })} />
+          <TextField multiline value={c.text ?? ""} tip="The words shown on screen. Click away to apply." onCommit={(v) => exec("clip.set_property", { clip: c.id, key: "text", value: v })} />
         </Row>
       )}
 
@@ -282,7 +303,7 @@ function Inspector() {
               <button
                 className="ghost reset"
                 disabled={!touched.length}
-                title={`Reset ${g.toLowerCase()}`}
+                data-tip={`Reset ${g.toLowerCase()}`}
                 onClick={() => commit(c.id, Object.fromEntries(touched.map((d) => [d.key, null])))}
               >
                 ↺
@@ -317,7 +338,7 @@ function Inspector() {
                 onLive={(v) => preview(c.id, { [`fx.${effect}`]: v })}
                 onCommit={(v) => commit(c.id, { [`fx.${effect}`]: v })}
               />
-              <button className="ghost" title="Remove effect" onClick={() => exec("clip.remove_effect", { clip: c.id, effect })}>✕</button>
+              <button className="ghost" data-tip={`Remove ${effect} from this clip`} onClick={() => exec("clip.remove_effect", { clip: c.id, effect })}>✕</button>
             </div>
           ))}
         </section>
@@ -371,13 +392,13 @@ function Agent() {
         {mcp?.running && (
           <>
             <div className="line">
-              <input className="mono" readOnly value={mcp.url} />
-              <button onClick={() => copy(mcp.url)}>Copy</button>
+              <input className="mono" readOnly value={mcp.url} data-tip="The address of the MCP server on this computer" />
+              <button data-tip="Copy the server address" onClick={() => copy(mcp.url)}>Copy</button>
             </div>
             <p className="hint">Connect Claude Code with this command, then ask it to edit the open project:</p>
             <div className="line">
-              <input className="mono" readOnly value={connect} />
-              <button onClick={() => copy(connect)}>Copy</button>
+              <input className="mono" readOnly value={connect} data-tip="Run this in a terminal to connect Claude Code to the editor" />
+              <button data-tip="Copy the connect command" onClick={() => copy(connect)}>Copy</button>
             </div>
             <p className="hint">Only programs on this computer can reach it. Agent edits show up below in purple and can be undone.</p>
           </>
@@ -402,9 +423,9 @@ export function RightPanel() {
         value={tab}
         onChange={(rightTab) => ui.set({ rightTab })}
         tabs={[
-          ["inspector", "Inspector"],
-          ["transcript", "Transcript"],
-          ["agent", "Agent"],
+          ["inspector", "Inspector", "Properties of the selected clip"],
+          ["transcript", "Transcript", "Words and captions for the clip (coming soon)"],
+          ["agent", "Agent", "Connect an AI agent and see what it changed"],
         ]}
       />
       <div className="pane">

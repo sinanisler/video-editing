@@ -40,8 +40,22 @@ export function hue(s: string): number {
   return h;
 }
 
-export function trackHeight(t: Track): number {
-  return t.kind === "caption" ? 36 : t.kind === "audio" ? 42 : 46;
+export const COLLAPSED_PX = 18;
+export const TRACK_MIN_PX = 24;
+export const TRACK_MAX_PX = 120;
+
+/** How tall each track is on screen. Kept in the view state, not the project. */
+export interface TrackLayout {
+  videoH: number;
+  audioH: number;
+  heights: Record<string, number>;
+  collapsed: Record<string, boolean>;
+}
+
+export function trackHeight(t: Track, layout: TrackLayout): number {
+  if (layout.collapsed[t.id]) return COLLAPSED_PX;
+  if (layout.heights[t.id]) return layout.heights[t.id];
+  return t.kind === "caption" ? 36 : t.kind === "audio" ? layout.audioH : layout.videoH;
 }
 
 const AUDIO_CLASSES = ["k-voice", "k-music", "k-sfx"];

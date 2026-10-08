@@ -190,6 +190,9 @@ h4:first-child { margin-top: 0; }
 #playhead::before { content: ""; position: absolute; left: -6px; top: 0; width: 13px; height: 13px; background: var(--accent); clip-path: polygon(0 0, 100% 0, 100% 55%, 50% 100%, 0 55%); }
 #marquee { position: absolute; z-index: 6; border: 1px solid var(--accent); background: #f5b83d22; pointer-events: none; }
 #snapline { position: absolute; top: 28px; bottom: 0; width: 1px; background: #fff; z-index: 4; pointer-events: none; }
+/* Razor preview: where the next click cuts. */
+.cutline { position: absolute; top: 28px; bottom: 0; width: 0; border-left: 1px dashed #ff6b6b; z-index: 4; pointer-events: none; }
+.cutline::after { content: attr(data-label); position: absolute; top: 4px; left: 4px; font: 14px Consolas, monospace; color: #ff6b6b; background: #000a; padding: 0 3px; border-radius: 2px; white-space: nowrap; }
 
 /* status */
 #status { display: flex; align-items: center; gap: 14px; padding: 0 10px; background: var(--panel); border-top: 1px solid var(--line); color: var(--mute); font-size: 15px; }
@@ -223,8 +226,6 @@ button.wide { width: 100%; padding: 7px; margin-bottom: 10px; }
 .mi .rm { position: absolute; top: 4px; right: 4px; padding: 0 6px; background: #000a; border-color: transparent; opacity: 0; }
 .mi:hover .rm { opacity: 1; }
 .mi .rm:hover { background: var(--danger); }
-.formats { display: flex; flex-direction: column; gap: 3px; margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); color: var(--mute); }
-.formats b { color: var(--text); }
 #dragghost { position: fixed; z-index: 70; pointer-events: none; background: var(--accent); color: #17130a; font-weight: 600; padding: 3px 10px; border-radius: 4px; transform: translate(12px, 12px); max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #dropveil { position: fixed; inset: 0; z-index: 65; pointer-events: none; border: 3px dashed var(--accent); background: #f5b83d14; display: grid; place-items: center; font-size: 22px; font-weight: 600; color: var(--accent); }
 
@@ -269,3 +270,50 @@ button.wide { width: 100%; padding: 7px; margin-bottom: 10px; }
 .exportbadge.failed { color: #ff7b72; }
 #status .link { cursor: pointer; }
 #status .link:hover { color: var(--text); }
+
+/* Hover tips: one box for the whole window, placed by Tooltip.tsx. */
+.tip { position: fixed; z-index: 100; transform: translateX(-50%); max-width: 340px; background: #0b0c10; border: 1px solid var(--line); border-radius: 5px; padding: 6px 9px; font-size: 14px; line-height: 1.45; color: var(--text); white-space: pre-line; text-align: left; box-shadow: 0 8px 24px #000c; pointer-events: none; }
+.tip.above { transform: translate(-50%, -100%); }
+.tip b { color: var(--accent); font-weight: 600; }
+
+/* Track headers: target, collapsed strip, fold button, height grip. */
+.hd { position: relative; }
+.hd.target { background: #f5b83d1c; }
+.hd .fold { width: 16px !important; padding: 0 !important; color: var(--mute) !important; border: 0 !important; background: none !important; }
+.hd .grip { position: absolute; left: 0; right: 0; bottom: 0; height: 5px; cursor: ns-resize; }
+.hd .grip:hover { background: #f5b83d66; }
+.hd.mini { padding: 0 4px; gap: 3px; font-size: 13px; }
+.hd.mini b { width: auto; margin-right: 2px; font-size: 13px; }
+.hd.mini button { height: 14px !important; width: 18px !important; font-size: 11px !important; line-height: 1; }
+.hd.mini .fold { width: 14px !important; }
+.hd.mini .rm { display: none; }
+
+/* Divider between the video and audio groups. */
+.split { height: 8px; background: #0b0c10; border-bottom: 1px solid var(--line); cursor: ns-resize; }
+.split:hover { background: #f5b83d44; }
+.splitpad { border-bottom: 0; }
+#heads .splitpad { background: #0b0c10; }
+#lanes .splitpad { background: #0b0c10; }
+
+/* Collapsed lanes: the clip is a thin strip with a name. */
+.lane.target { background: #f5b83d0d; }
+.lane.mini .clip { top: 1px; bottom: 1px; }
+.lane.mini .clip .nm { font-size: 12px; line-height: 14px; padding: 0 5px; }
+.lane.mini .clip .bd, .lane.mini .clip .tr { display: none; }
+
+/* Right-click menu. */
+.menu { position: fixed; z-index: 120; min-width: 210px; background: #1b1d23; border: 1px solid #2f333d; border-radius: 6px; padding: 4px 0; box-shadow: 0 10px 30px #000c; font-size: 14px; color: var(--text); user-select: none; }
+.mitem { display: flex; align-items: center; gap: 6px; padding: 5px 12px 5px 6px; cursor: pointer; }
+.mitem:hover { background: #2a2e38; }
+.mitem.off { color: var(--dim); cursor: default; }
+.mitem.off:hover { background: none; }
+.mitem.danger { color: var(--danger); }
+.mitem kbd { margin-left: auto; color: var(--dim); }
+.mcheck { width: 14px; color: var(--accent); text-align: center; flex: none; }
+.mlabel { flex: 1; white-space: nowrap; }
+.msep { height: 1px; background: #2f333d; margin: 4px 0; }
+.mrow { display: flex; align-items: center; gap: 6px; padding: 5px 12px 5px 6px; }
+.swatches { display: flex; gap: 4px; }
+.sw { width: 16px; height: 16px; border-radius: 3px; cursor: pointer; border: 1px solid #0008; }
+.sw.none { background: repeating-linear-gradient(45deg, #2a2e38 0 3px, #1b1d23 3px 6px); }
+.sw.on { outline: 2px solid var(--text); outline-offset: 1px; }

@@ -34,6 +34,12 @@ export const core = createStore<{ state: EditorState | null; mcp: McpStatus | nu
 });
 
 export type Tool = "select" | "razor";
+
+/** One row of a right-click menu. A row of colour swatches, or a separator, are the other two kinds. */
+export type MenuItem =
+  | "sep"
+  | { label: string; hint?: string; checked?: boolean; disabled?: boolean; danger?: boolean; action: () => void }
+  | { label: string; swatches: (string | null)[]; current?: string; onPick: (colour: string | null) => void };
 export type Overlay = "palette" | "shortcuts" | "export" | "project" | null;
 
 /** View state that is not part of the project. */
@@ -57,6 +63,21 @@ export const ui = createStore({
   transitionEdge: "in" as "in" | "out",
   /** The pace lane (cuts per 10 seconds) above the tracks. */
   showPace: false,
+  /** The track that paste lands on. Set by clicking a track header or an empty part of a track. */
+  targetTrack: null as string | null,
+  /** Heights the user dragged to, by track id. Tracks without one use the default for their kind. */
+  trackHeights: {} as Record<string, number>,
+  /** Collapsed tracks show as a thin strip. */
+  collapsed: {} as Record<string, boolean>,
+  /** Default height of video and audio tracks. The divider between the two groups changes them. */
+  videoH: 46,
+  audioH: 42,
+  /** Colour stripe for a track, by track id. */
+  trackColors: {} as Record<string, string>,
+  /** The track whose name is being edited. */
+  renaming: null as string | null,
+  /** An open right-click menu. */
+  menu: null as { x: number; y: number; items: MenuItem[] } | null,
   /** Files from outside the app are being dragged over the window. */
   fileDrag: false,
   /** A media pool item being dragged with the pointer. */
