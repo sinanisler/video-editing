@@ -2,7 +2,7 @@ import type React from "react";
 import { exec, ui } from "../store";
 import type { MenuItem } from "../store";
 import type { Sequence, Track } from "../types";
-import { clamp, TRACK_MAX_PX, TRACK_MIN_PX } from "../util";
+import { clamp, COLLAPSED_PX, TRACK_MAX_PX, TRACK_MIN_PX } from "../util";
 import { openMenu } from "./ContextMenu";
 
 /** Colours a track can be given. A track's colour shows as a stripe on its header and on its lane. */
@@ -55,24 +55,37 @@ function startResize(e: React.PointerEvent, t: Track, height: number) {
 }
 
 /**
- * Drag the divider between the video and audio groups. Down makes video tracks taller and audio tracks shorter;
- * up does the reverse. Each track's own height is cleared so the group default applies to all of them.
+ * Drag the divider between the video and audio groups. The line follows the pointer: the video tracks above it
+ * grow or shrink by the same amount, and the audio tracks below keep their size and move with it. Pulling the
+ * video group below its minimum collapses it, and pulling it back out expands it again.
  */
 function startSplit(e: React.PointerEvent, tracks: Track[]) {
   if (e.button !== 0) return;
   e.preventDefault();
   e.stopPropagation();
-  const visible = tracks.filter((t) => !ui.get().collapsed[t.id]);
-  const videos = Math.max(1, visible.filter((t) => t.kind === "video").length);
-  const audios = Math.max(1, visible.filter((t) => t.kind === "audio").length);
-  const { videoH: v0, audioH: a0 } = ui.get();
+  const videos = tracks.filter((t) => t.kind === "video");
+  const n = Math.max(1, videos.length);
+  const start = ui.get();
+  // A group that starts collapsed resumes from its collapsed height, so the first pixels of drag expand it smoothly.
+  const base = videos.length && videos.every((t) => start.collapsed[t.id]) ? COLLAPSED_PX : clamp(start.videoH, TRACK_MIN_PX, TRACK_MAX_PX);
   const y0 = e.clientY;
   const move = (ev: PointerEvent) => {
-    const videoH = clamp(Math.round(v0 + (ev.clientY - y0) / videos), TRACK_MIN_PX, TRACK_MAX_PX);
-    const audioH = clamp(Math.round(a0 - ((videoH - v0) * videos) / audios), TRACK_MIN_PX, TRACK_MAX_PX);
-    const heights = { ...ui.get().trackHeights };
-    for (const t of tracks) if (t.kind !== "caption") delete heights[t.id];
-    ui.set({ videoH, audioH, trackHeights: heights });
+    // Each video track takes its share of the pointer movement, so the line moves exactly as far as the pointer.
+    const raw = base + (ev.clientY - y0) / n;
+    const collapsed = raw < TRACK_MIN_PX;
+    const s = ui.get();
+    const next = { ...s.collapsed };
+    const heights = { ...s.trackHeights };
+    for (const t of videos) {
+      next[t.id] = collapsed;
+      delete heights[t.id];
+    }
+    ui.set({
+      // A collapsed group keeps its last expanded height, so pulling it back out restores that size.
+      videoH: collapsed ? s.videoH : Math.round(clamp(raw, TRACK_MIN_PX, TRACK_MAX_PX)),
+      collapsed: next,
+      trackHeights: heights,
+    });
   };
   const up = () => {
     window.removeEventListener("pointermove", move);
@@ -167,17 +180,15 @@ export function TrackHead({ t, seq, height }: { t: Track; seq: Sequence; height:
     <div
       className={`hd ${target ? "target" : ""} ${mini ? "mini" : ""}`}
       style={{ height, boxShadow: colour ? `inset 3px 0 0 ${colour}` : undefined }}
-      data-tip={`${t.name}. Click to make it the paste target. Right-click for options.`}
-      onPointerDown={() => ui.set({ targetTrack: t.id })}
+      data-tip={`${t.name}: click to ${collapsed ? "expand" : "collapse"}. Double-click the name to rename. Right-click for options.`}
+      onClick={(e) => {
+        // Buttons, the name and the height grip keep their own clicks.
+        if ((e.target as HTMLElement).closest("button, input, .grip, .n")) return;
+        ui.set({ collapsed: { ...ui.get().collapsed, [t.id]: !collapsed } });
+      }}
       onContextMenu={(e) => openTrackMenu(e, t, seq)}
     >
-      <button
-        className="fold"
-        data-tip={collapsed ? "Expand this track" : "Collapse this track to a thin strip"}
-        onClick={() => ui.set({ collapsed: { ...ui.get().collapsed, [t.id]: !collapsed } })}
-      >
-        {collapsed ? "▸" : "▾"}
-      </button>
+      <span className="fold" aria-hidden="true">{collapsed ? "▸" : "▾"}</span>
       <b>{t.id}</b>
       <TrackName t={t} />
       {!hasClips && (

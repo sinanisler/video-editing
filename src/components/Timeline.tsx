@@ -147,6 +147,7 @@ export function Timeline() {
   const colours = ui.use((s) => s.trackColors);
   const targetId = ui.use((s) => s.targetTrack);
   const layout = { videoH, audioH, heights, collapsed };
+  const headsW = ui.use((s) => s.headsW);
 
   const p = state.project;
   const seq = p.sequence;
@@ -366,6 +367,21 @@ export function Timeline() {
     drag.current = { mode, lead: c, group, grabFrame: at, moved: false, collapse: keepGroup, delta: 0, ghosts: {} };
   };
 
+  /** Drag the right edge of the track headers column to change its width. */
+  const startHeadsResize = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const x0 = e.clientX;
+    const w0 = ui.get().headsW;
+    const move = (ev: PointerEvent) => ui.set({ headsW: clamp(Math.round(w0 + ev.clientX - x0), 120, 420) });
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   const onRulerDown = (e: React.PointerEvent) => {
     drag.current = { mode: "seek" };
     seek(frameAt(e.clientX));
@@ -383,8 +399,9 @@ export function Timeline() {
   return (
     <div id="tl" className={tool === "razor" ? "razor" : ""}>
       <Toolbar selected={seq.clips.filter((c) => selection.includes(c.id))} fps={fps} />
-      <div id="tlbody">
+      <div id="tlbody" style={{ "--heads": `${headsW}px` } as React.CSSProperties}>
         <div id="heads">
+          <i className="colgrip" data-tip="Drag to make the track name column wider or narrower" onPointerDown={startHeadsResize} />
           <div className="hd corner" style={{ height: 28 }}>
             <button data-tip="Add a video track" onClick={() => exec("timeline.add_track", { kind: "video" })}>+ Video</button>
             <button data-tip="Add an audio track" onClick={() => exec("timeline.add_track", { kind: "audio" })}>+ Audio</button>
@@ -452,7 +469,7 @@ export function Timeline() {
                           key={c.id}
                           data-id={c.id}
                           className={`clip ${clipClass(c, seq.tracks)} ${selection.includes(c.id) ? "sel" : ""}`}
-                          style={{ left: c.start * ppf, width: Math.max(3, c.duration * ppf - 1) }}
+                          style={{ left: c.start * ppf, width: Math.max(3, c.duration * ppf - 1), background: colours[c.track] }}
                           data-tip={byAgent ? `${c.name} · last changed by ${c.last_actor}` : c.name}
                         >
                           {c.transition_in && <span className="tr" data-tip={c.transition_in.name} />}

@@ -317,3 +317,12 @@ button.wide { width: 100%; padding: 7px; margin-bottom: 10px; }
 .sw { width: 16px; height: 16px; border-radius: 3px; cursor: pointer; border: 1px solid #0008; }
 .sw.none { background: repeating-linear-gradient(45deg, #2a2e38 0 3px, #1b1d23 3px 6px); }
 .sw.on { outline: 2px solid var(--text); outline-offset: 1px; }
+.hd { cursor: pointer; }
+.hd .grip, .hd button, .hd .n { cursor: default; }
+.hd .grip { cursor: ns-resize; }
+.hd .n { cursor: text; }
+.hd .fold { display: inline-block; width: 16px; font-size: 16px; text-align: center; color: var(--mute); pointer-events: none; }
+/* Width handle on the right edge of the track headers column. */
+#heads { position: relative; }
+.colgrip { position: absolute; top: 0; bottom: 0; right: 0; width: 10px; cursor: ew-resize; z-index: 5; }
+.colgrip:hover { background: #f5b83d55; }

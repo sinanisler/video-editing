@@ -72,6 +72,8 @@ export const ui = createStore({
   /** Default height of video and audio tracks. The divider between the two groups changes them. */
   videoH: 46,
   audioH: 42,
+  /** Width of the track headers column, in pixels. */
+  headsW: 190,
   /** Colour stripe for a track, by track id. */
   trackColors: {} as Record<string, string>,
   /** The track whose name is being edited. */
