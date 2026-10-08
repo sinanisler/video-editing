@@ -604,8 +604,8 @@ export function Timeline() {
                           style={{
                             left: c.start * ppf,
                             width: Math.max(3, c.duration * ppf - 1),
-                            background: colours[c.track],
-                            boxShadow: clipColours[c.id] ? `inset 5px 0 0 ${clipColours[c.id]}` : undefined,
+                            // A clip's own colour fills its bar; without one, the bar takes its track's colour.
+                            background: clipColours[c.id] ?? colours[c.track],
                           }}
                           data-tip={byAgent ? `${c.name} · last changed by ${c.last_actor}` : c.name}
                           onContextMenu={(e) => openClipMenu(e, c)}
@@ -630,6 +630,7 @@ export function Timeline() {
                           </span>
                           {c.transition_out && <span className="tr out" data-tip={c.transition_out.name} />}
                           <span className="h hr" data-tip="Drag to trim the end of the clip" />
+                          {clipColours[c.id] && <span className="cc" style={{ background: clipColours[c.id] }} />}
                         </div>
                       );
                     })}

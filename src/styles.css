@@ -183,6 +183,8 @@ h4:first-child { margin-top: 0; }
 .clip .bd { position: absolute; right: 8px; bottom: 2px; display: flex; gap: 3px; font-size: 15px; line-height: 1.1; pointer-events: none; }
 .clip .bd i { font-style: normal; background: #000a; border-radius: 2px; padding: 0 3px; }
 .clip .bd i.ag { background: var(--agent); color: #17130a; }
+/* A clip's colour band. It sits above the thumbnails, so the colour shows on video clips too. */
+.clip .cc { position: absolute; left: 0; right: 0; top: 0; height: 4px; z-index: 2; pointer-events: none; }
 .k-video { background: var(--k-video); } .k-pip { background: var(--k-pip); } .k-gfx { background: var(--k-gfx); }
 .k-cap { background: var(--k-cap); } .k-voice { background: var(--k-voice); } .k-music { background: var(--k-music); } .k-sfx { background: var(--k-sfx); }
 #tl.razor .clip { cursor: crosshair; }
