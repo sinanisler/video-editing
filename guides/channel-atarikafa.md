@@ -14,6 +14,10 @@ What is specific to this channel and this series. The method is in `retention-ed
 
 ZindanCraft is the "Atarikafa Dungeons" mod: pick a class, go down a dungeon, beat the boss, take its key to the guild, unlock the next tier. Tier 1 to Tier 5, then the crown, then the Abyss. Each episode makes one promise and ends on one result, 15 to 25 minutes. Episode 1 is the pilot: from nothing to the first Tier 1 boss and key #1.
 
+## The open question of each episode
+
+Every episode has one result the viewer waits for, shown only in the final scene: the boss beaten or not, the key, the grade on the dungeon note, how deep the Abyss run got. Losing everything on death is the stake; say it in the first sentence. The soul stone makes every death a small version of the same question (does the gear come back?), so keep the answer for the end of that scene too.
+
 ## Moments the mod gives for free
 
 Look for these in the inventory first. They replace effects other channels build by hand.

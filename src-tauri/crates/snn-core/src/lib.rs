@@ -3,6 +3,7 @@
 //! Everything that changes a project goes through [`Editor::execute`]. The GUI and the MCP
 //! server are both thin callers of that one function, so an agent can do exactly what a user can.
 
+mod analysis;
 mod command;
 #[cfg(test)]
 mod demo;
@@ -13,6 +14,7 @@ mod model;
 mod probe;
 mod tools;
 
+pub use analysis::{base64, is_analysis, Analysis, Job};
 pub use command::{apply, Command};
 pub use editor::{Editor, EditorState, LogEntry};
 pub use guides::{find_guide, guides, Guide};

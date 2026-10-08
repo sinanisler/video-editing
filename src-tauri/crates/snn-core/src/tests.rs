@@ -194,7 +194,8 @@ fn every_catalog_tool_is_wired_up() {
             assert!(!err.contains("invalid arguments") && !err.contains("unknown tool"), "{}: {err}", tool.name);
         }
         // These examples are valid against the fixture and must succeed outright.
-        if !matches!(tool.name, "media_remove" | "timeline_remove_marker") {
+        // The analysis tools need FFmpeg and a real file; `analysis_reads_a_real_file` covers them.
+        if !matches!(tool.name, "media_remove" | "timeline_remove_marker") && !crate::is_analysis(tool.name) {
             assert!(result.is_ok(), "{}: {:?}", tool.name, result);
         }
         assert_eq!(e.state().log[0].actor, "agent");
@@ -212,13 +213,86 @@ fn guides_are_listed_and_readable() {
         assert_eq!(e.call_tool("agent", "guide_get", json!({"name": g.name})).unwrap(), json!(g.text));
         // A guide must not send an agent to a tool that does not exist.
         for word in g.text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')) {
-            let prefixes = ["timeline_", "clip_", "project_", "history_", "media_", "batch_", "view_", "guide_", "library_"];
+            let prefixes = ["timeline_", "clip_", "project_", "history_", "media_", "batch_", "view_", "guide_", "library_", "frames_", "audio_"];
             if prefixes.iter().any(|p| word.starts_with(p) && word.len() > p.len()) {
                 assert!(catalog().iter().any(|t| t.name == word), "{} mentions unknown tool {word}", g.name);
             }
         }
     }
     assert!(e.call_tool("agent", "guide_get", json!({"name": "nope"})).unwrap_err().contains("retention-edit"));
+}
+
+#[test]
+fn base64_matches_the_standard() {
+    assert_eq!(crate::base64(b""), "");
+    assert_eq!(crate::base64(b"f"), "Zg==");
+    assert_eq!(crate::base64(b"fo"), "Zm8=");
+    assert_eq!(crate::base64(b"foobar"), "Zm9vYmFy");
+    assert_eq!(crate::base64(&[0xff, 0xfe, 0xfd]), "//79");
+}
+
+#[test]
+fn analysis_arguments_are_checked_against_the_project() {
+    let mut e = Editor::default();
+    e.call_tool("t", "media_import", json!({"path": "C:/a.mp4", "kind": "video", "duration": 9000, "width": 1920, "height": 1080})).unwrap();
+    let media = e.project().media[0].id.clone();
+    let err = |e: &Editor, tool: &str, args: serde_json::Value| e.analysis_job(tool, &args).unwrap_err();
+    assert!(err(&e, "frames_get", json!({"at": 10})).contains("no video clip is visible"));
+    assert!(err(&e, "frames_get", json!({"media": media, "at": 9000})).contains("9000 frames long"));
+    assert!(err(&e, "frames_get", json!({"media": "nope", "at": 1})).contains("no media"));
+    assert!(err(&e, "frames_contact_sheet", json!({"media": media, "from": 50, "to": 50})).contains("nothing to show"));
+    assert!(err(&e, "audio_get_activity", json!({})).contains("media"));
+
+    // On the timeline, a frame is found through the clip: its source offset and its speed.
+    e.call_tool("t", "timeline_add_clip", json!({"track": "V1", "start": 100, "duration": 300, "name": "x", "kind": "video", "media": media, "source_in": 3000})).unwrap();
+    let Job::Frame { shot, .. } = e.analysis_job("frames_get", &json!({"at": 130})).unwrap() else { panic!() };
+    assert_eq!(format!("{shot:?}"), r#"Shot { path: "C:/a.mp4", seconds: 101.0, label: "T 0m04s f130" }"#);
+    let Job::Sheet { shots, columns, tile, .. } = e.analysis_job("frames_contact_sheet", &json!({"count": 4})).unwrap() else { panic!() };
+    // Four samples across frames 0 to 400; the first falls before the clip and is left out.
+    assert_eq!((shots.len(), columns, tile), (3, 3, (320, 180)));
+}
+
+/// Runs the analysis tools on a generated file. Skipped when FFmpeg is not installed.
+#[test]
+fn analysis_reads_a_real_file() {
+    let dir = std::env::temp_dir().join(format!("snn-analysis-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("çekim ğü.mp4").display().to_string();
+    // 20 seconds of test pattern; a steady tone that drops out from 6 s to 10 s and peaks at 14 s.
+    let volume = "volume='if(between(t,6,10),0,if(between(t,14,15),1,0.2))':eval=frame";
+    let made = std::process::Command::new("ffmpeg")
+        .args(["-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30:duration=20"])
+        .args(["-f", "lavfi", "-i", "sine=frequency=440:duration=20", "-af", volume])
+        .args(["-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", &path])
+        .status();
+    if !made.is_ok_and(|s| s.success()) {
+        eprintln!("skipped: FFmpeg is not on the PATH");
+        return;
+    }
+    let mut e = Editor::default();
+    let media = e.call_tool("t", "media_import", json!({"path": path})).unwrap()["media"]["id"].as_str().unwrap().to_string();
+    let jpeg = |a: crate::Analysis| a.jpeg.filter(|j| j.starts_with(&[0xff, 0xd8])).expect("a JPEG");
+
+    let one = e.analysis_job("frames_get", &json!({"media": media, "at": 300, "width": 320})).unwrap().run().unwrap();
+    assert!(jpeg(one).len() > 1000);
+    let sheet = e.analysis_job("frames_contact_sheet", &json!({"media": media, "count": 8, "columns": 4})).unwrap().run().unwrap();
+    assert_eq!((sheet.info["tiles"].clone(), sheet.info["frames_between_tiles"].clone()), (json!(8), json!(75)));
+    assert!(jpeg(sheet).len() > 5000);
+
+    let sound = e.call_tool("agent", "audio_get_activity", json!({"media": media})).unwrap();
+    let silences = sound["silences"].as_array().unwrap();
+    assert_eq!(silences.len(), 1, "{sound}");
+    let (from, to) = (silences[0]["from"].as_i64().unwrap(), silences[0]["to"].as_i64().unwrap());
+    assert!((from - 180).abs() <= 3 && (to - 300).abs() <= 3, "{sound}");
+    let loudest = sound["loudest"].as_array().unwrap().iter().max_by(|a, b| a["lufs"].as_f64().unwrap().total_cmp(&b["lufs"].as_f64().unwrap())).unwrap();
+    assert!((420..=460).contains(&loudest["at"].as_i64().unwrap()), "{sound}");
+    assert_eq!(e.state().log[0].tool, "audio.get_activity");
+
+    // A window in the middle reports frames of the whole file, not of the window.
+    let part = e.call_tool("agent", "audio_get_activity", json!({"media": media, "from": 150, "to": 450})).unwrap();
+    assert!((part["silences"][0]["from"].as_i64().unwrap() - 180).abs() <= 3, "{part}");
+    assert!(e.call_tool("agent", "audio_get_activity", json!({"media": media, "audio_stream": 3})).unwrap_err().contains("1 audio stream"));
+    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[test]

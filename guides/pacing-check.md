@@ -24,7 +24,7 @@ Pace must not fall after the opening. In the study the first minute averaged 23 
 
 Go through the timeline in order and check:
 
-- 0–5 s: a title card or caption is on screen. Not bare gameplay.
+- 0–5 s: the shot and the caption show what the title and thumbnail promise, and make sense with the sound off.
 - 4–12 s: three or four short teaser clips.
 - 12–25 s: a subscribe card of about 3 seconds.
 - By 0:45: the first loop has started.
@@ -32,12 +32,13 @@ Go through the timeline in order and check:
 - Every new stage: a chapter card or a counter change.
 - No five-minute stretch of one kind of scene.
 - No sponsor in the first minute.
-- The last 20 seconds deliver the result the opening promised.
+- The open question from the opening is not answered before the final scene.
+- The final scene delivers the result the opening promised, and the video ends within about 20 seconds of it.
 
 ## Fix
 
 - Slow minute with dead footage: more cuts (`dead-air`).
-- Slow minute with good footage: add a picture change that carries information, such as a counter update, a zoom punch on the reaction, a greyscale inset recalling an earlier moment, or a chapter card. Do not add cuts that only raise the count.
+- Slow minute with good footage, or talk over a view where nothing moves: add a picture change that carries information, such as an inset of what is being talked about, a counter update, a zoom punch on the reaction, a greyscale inset recalling an earlier moment, or a chapter card. Do not add cuts that only raise the count.
 - Too fast to follow (over about 45 changes a minute outside the teaser): let the reactions and tooltips breathe.
 
 ## Report

@@ -10,7 +10,7 @@ The method lives in the editor, not here, so every agent gets the same one. This
 1. The editor must be running (`npm run tauri dev`) and the `snn-editor` MCP server connected. If its tools are missing, tell the user; do not edit project files by hand.
 2. Call `guide_list`, then `guide_get` for `retention-edit`. Follow it, and read the guides it names (`dead-air`, `cold-open`, `pacing-check`) when you reach each pass. Read `channel-atarikafa` for this channel's videos.
 3. The user works in the same open project. Before the first edit, say what you are about to do and ask them to save. Edit only what they asked for.
-4. You cannot see or hear the footage. Work from the user's list of moments or their markers, as the guide says, and ask when there is none.
+4. Look before you cut. `frames_contact_sheet`, `frames_get` and `audio_get_activity` show you the footage; the guide says how to build an inventory with them. There is no transcript, so ask the user for anything that depends on what was said.
 
 The guides are `guides/*.md` in this repository. When the user corrects how you edit, change the guide so the correction lasts, and tell them the app has to restart to serve it.
 

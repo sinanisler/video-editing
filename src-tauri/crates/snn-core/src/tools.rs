@@ -4,6 +4,7 @@
 //! MCP clients restrict tool names to letters, digits, `_` and `-`, so the catalog uses
 //! `timeline_split_clip` where the command layer and the activity log say `timeline.split_clip`.
 
+use crate::analysis::is_analysis;
 use crate::command::Command;
 use crate::editor::Editor;
 use crate::guides::{find_guide, guides};
@@ -29,7 +30,9 @@ app; the user sees every change live and can undo it. All times are integer fram
 (see project_get_info for fps). Tracks are listed top to bottom; a video track draws over the video tracks below it, and you can add tracks. Clips on \
 one track cannot overlap: a command that would overlap fails and changes nothing. Start with project_get_info and \
 timeline_get_state, and use batch_apply to make several edits as one undo step. The tools say what is possible, not \
-what makes a good edit: before editing for a purpose, call guide_list and read the guide that fits with guide_get.";
+what makes a good edit: before editing for a purpose, call guide_list and read the guide that fits with guide_get. \
+You can look at the footage: frames_contact_sheet and frames_get return pictures, and audio_get_activity finds silences \
+and the loudest moments. Look before you cut.";
 
 fn obj(properties: Value, required: &[&str]) -> Value {
     json!({ "type": "object", "properties": properties, "required": required, "additionalProperties": false })
@@ -100,6 +103,60 @@ pub fn catalog() -> Vec<ToolDef> {
              the first 30 seconds, and the longest stretches with no change. Captions are not counted.",
             obj(json!({}), &[]),
             json!({}),
+        ),
+        read(
+            "frames_contact_sheet",
+            "See a stretch of footage as one picture: up to 48 evenly spaced frames in a grid, each labelled with \
+             its time and frame number. With media, from and to are source frames of that file; without it they are \
+             timeline frames and the sheet shows the edit as it plays. Start wide (a whole recording in 48 tiles), \
+             then ask again for a narrow range to find the exact frame to cut on.",
+            obj(
+                json!({
+                    "media": text("Media id to look at. Omit to look at the timeline."),
+                    "from": frame("First frame; default 0"),
+                    "to": frame("End frame; default the end of the media or timeline"),
+                    "count": { "type": "integer", "minimum": 1, "maximum": 48, "description": "Number of tiles; default 24" },
+                    "columns": { "type": "integer", "minimum": 1, "maximum": 12, "description": "Default 6" },
+                    "tile_width": { "type": "integer", "minimum": 120, "maximum": 640, "description": "Pixels; default 320. Use 480 or more to read on-screen text." },
+                }),
+                &[],
+            ),
+            json!({ "from": 0, "to": 900, "count": 6, "columns": 3 }),
+        ),
+        read(
+            "frames_get",
+            "One frame as a picture, large enough to read on-screen text. With media, at is a source frame of that \
+             file; without it, at is a timeline frame and you get the video clip visible there (without effects, \
+             cards or captions).",
+            obj(
+                json!({
+                    "media": text("Media id. Omit to look at the timeline."),
+                    "at": frame("Frame to show"),
+                    "width": { "type": "integer", "minimum": 160, "maximum": 1920, "description": "Pixels; default 960" },
+                }),
+                &["at"],
+            ),
+            json!({ "at": 120 }),
+        ),
+        read(
+            "audio_get_activity",
+            "Hear a file in numbers: every silence longer than min_seconds, and the 20 loudest moments (shouts, \
+             laughter, explosions) at least 10 seconds apart, with the typical level to compare them against. Times are source frames of the media. Silences are \
+             candidates for cutting; loud moments are candidates for the opening. If the microphone was recorded on \
+             its own audio stream, pass audio_stream to analyse the voice alone, which is far more useful than \
+             voice mixed with game sound. A two-hour file takes around a minute.",
+            obj(
+                json!({
+                    "media": text("Media id"),
+                    "from": frame("First source frame; default 0"),
+                    "to": frame("End source frame; default the end of the file"),
+                    "audio_stream": { "type": "integer", "minimum": 0, "description": "Which audio stream of the file, counting from 0; default 0" },
+                    "threshold_db": { "type": "number", "minimum": -90, "maximum": 0, "description": "Quieter than this is silence; default -35" },
+                    "min_seconds": { "type": "number", "minimum": 0.1, "maximum": 60, "description": "Shortest silence to report; default 0.5" },
+                }),
+                &["media"],
+            ),
+            json!({ "media": "media0" }),
         ),
         read("media_list", "Files in the media pool, with id, path, kind, length in frames and size.", obj(json!({}), &[]), json!({})),
         read(
@@ -334,6 +391,12 @@ impl Editor {
     pub fn call_tool(&mut self, actor: &str, name: &str, args: Value) -> Result<Value, String> {
         let args = if args.is_null() { json!({}) } else { args };
         let tool = catalog().into_iter().find(|t| t.name == name).ok_or_else(|| format!("unknown tool {name}"))?;
+        if is_analysis(name) {
+            // The MCP server runs these itself so the editor is not held while FFmpeg works.
+            let result = self.analysis_job(name, &args).and_then(|job| job.run());
+            self.log_analysis(actor, name, args, &result);
+            return result.map(|a| a.info);
+        }
         if tool.read_only {
             let result = self.read_tool(name, &args);
             self.record(actor, internal(name), args, &result);

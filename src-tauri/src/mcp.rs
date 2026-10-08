@@ -113,6 +113,9 @@ fn handle_message(ctx: &mut Ctx, msg: &Value, session: Option<&str>) -> (Option<
                 return (Some(rpc_error(id, -32602, "tools/call needs a tool name")), None);
             };
             let actor = session.and_then(|s| ctx.sessions.get(s)).cloned().unwrap_or_else(|| "agent".into());
+            if snn_core::is_analysis(name) {
+                return (ok(analyse(ctx, &actor, name, params.get("arguments").cloned().unwrap_or(json!({})))), None);
+            }
             let mut editor = ctx.editor.lock().unwrap();
             let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
             let result = editor.call_tool(&actor, name, arguments.clone());
@@ -130,6 +133,26 @@ fn handle_message(ctx: &mut Ctx, msg: &Value, session: Option<&str>) -> (Option<
             (ok(json!({ "content": [{ "type": "text", "text": text }], "isError": is_error })), None)
         }
         other => (Some(rpc_error(id, -32601, &format!("method {other} is not supported"))), None),
+    }
+}
+
+/// Runs a tool that reads media with FFmpeg. The editor is only locked to read the project and to
+/// write the log, so the window stays usable while a long file is analysed.
+fn analyse(ctx: &mut Ctx, actor: &str, name: &str, arguments: Value) -> Value {
+    let job = ctx.editor.lock().unwrap().analysis_job(name, &arguments);
+    let result = job.and_then(|job| job.run());
+    let mut editor = ctx.editor.lock().unwrap();
+    editor.log_analysis(actor, name, arguments, &result);
+    publish(ctx.app, &editor);
+    match result {
+        Ok(a) => {
+            let mut content = vec![json!({ "type": "text", "text": serde_json::to_string_pretty(&a.info).unwrap_or_default() })];
+            if let Some(jpeg) = a.jpeg {
+                content.insert(0, json!({ "type": "image", "data": snn_core::base64(&jpeg), "mimeType": "image/jpeg" }));
+            }
+            json!({ "content": content, "isError": false })
+        }
+        Err(e) => json!({ "content": [{ "type": "text", "text": e }], "isError": true }),
     }
 }
 

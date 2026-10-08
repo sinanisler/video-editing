@@ -2,6 +2,15 @@
 
 Builds the opening from the best moments of the recording, so the viewer knows what the video is and why to stay before the slow start of the real session. Viewers decide in the first 90 seconds; the opening gets the most care.
 
+## The first 5 seconds keep the title's promise
+
+Start from the title and thumbnail the user plans to publish. The first shot shows what they show, and the first sentence says what they say, with the stake: what is being attempted and what is lost if it fails. No wasted words. MrBeast's example of a complete opening, in one breath: "I tied up an FBI agent, there is $100,000 in this bag, here is a knife, good luck."
+
+- If the title says a boss, the boss is on screen in the first shot. Not the menu, not the walk there.
+- Match the promise first, then top it: one line or shot that says there is more than the title told them.
+- It must work **without sound**. On the YouTube home page the video starts playing muted before anyone has chosen it, so these seconds do the job of the thumbnail. A caption carries the sentence and the picture is readable at phone size.
+- Taking 20 seconds to get to what the title promised is where most viewers are lost.
+
 ## The shape
 
 Times are from the start of the video. Convert to frames with the project frame rate.
@@ -18,10 +27,11 @@ Targets: 10 to 15 picture changes in the first 30 seconds, about 23 in the first
 
 ## Choosing the shots
 
-- Take them from the **Peaks** list of the inventory, as source positions.
+- Take them from the **Peaks** list of the inventory, as source positions. The loudest moments from `audio_get_activity` are where to look first: get a sheet of the 5 seconds before each one, because the picture worth showing usually comes just before the shout.
+- Pick the exact first and last frame of each shot from a close sheet. A 1.5-second shot that starts half a second late shows nothing.
 - The promise shot shows a result, not a setup: the boss enraged, the reward on screen, the huge number.
 - Teaser shots differ from each other: a fight, a loss, a reward, a place. Four clips of the same fight read as one.
-- Leave one question open. Show the boss waking, not the boss dying. Show the death, not what was lost.
+- Leave one question open, and make it the one the final scene answers. Show the boss waking, not the boss dying. Show the death, not what was lost. The payoff shot itself never appears in the teaser.
 - The teaser is a **copy**. The same moments stay in the body, where they pay off.
 - If the user recorded a separate promise scene, use it for 0–4 s.
 
@@ -37,6 +47,7 @@ Targets: 10 to 15 picture changes in the first 30 seconds, about 23 in the first
 ## Never
 
 - Open on bare gameplay with no text.
+- Open on anything the title did not promise: a greeting, a recap, "but first".
 - Explain the rule later than 30 seconds in.
 - Talk through setup before anything has happened.
 - Put a sponsor in the first minute.
