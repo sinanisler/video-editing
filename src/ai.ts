@@ -36,12 +36,31 @@ export interface ChatTurn {
   calls: { name: string; ok: boolean }[];
 }
 
+/** One sound track of a media file. `channel_names` is empty when FFmpeg names a layout this app does not know. */
+export interface AudioStream {
+  index: number;
+  layout: string;
+  channels: number;
+  channel_names: string[];
+}
+
+/** A line of speech, in seconds from the start of the media file. */
+export interface SpeechCue {
+  start: number;
+  end: number;
+  text: string;
+}
+
 export const aiState = () => invoke<AiState>("ai_state");
 export const aiSetKey = (key: string) => invoke<void>("ai_set_key", { key });
 export const aiClearKey = () => invoke<void>("ai_clear_key");
 export const aiSetModel = (role: "agent" | "whisper", model: string | null) => invoke<void>("ai_set_model", { role, model });
 export const aiModels = () => invoke<{ models: AiModel[] }>("ai_models");
 export const aiChat = (messages: ChatMessage[]) => invoke<ChatTurn>("ai_chat", { messages });
+export const mediaAudioStreams = (media: string) => invoke<AudioStream[]>("media_audio_streams", { media });
+/** Writes the lines of speech for `from` to `to` (seconds in the media) from one track, or one channel of it. Null channel mixes them. */
+export const aiTranscribe = (media: string, track: number, channel: number | null, from: number, to: number) =>
+  invoke<SpeechCue[]>("ai_transcribe", { media, track, channel, from, to });
 
 /** Prices as dollars per million tokens, for the picker. */
 export const perMillion = (perToken: string) => {

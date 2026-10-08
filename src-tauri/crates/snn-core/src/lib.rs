@@ -15,6 +15,7 @@ mod model;
 mod probe;
 mod render;
 mod scan;
+mod speech;
 mod tools;
 
 pub use analysis::{available_encoders, base64, ffmpeg_version, supports_export, unavailable_encoders, unbase64, ffmpeg_path, is_analysis, probe_streams, Analysis, Job, INSTALL_HINT};
@@ -27,6 +28,7 @@ pub use model::*;
 pub use probe::{probe_mp4, Probe};
 pub use render::{render, CANCELLED};
 pub use scan::media_under;
+pub use speech::{audio_streams, chunk_spans, parse_speech, speech_audio, AudioStream, SpeechCue, CHUNK_SECONDS};
 pub use tools::{catalog, is_export, ToolDef, INSTRUCTIONS};
 
 #[cfg(test)]

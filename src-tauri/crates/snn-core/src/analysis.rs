@@ -214,7 +214,7 @@ pub(crate) fn ffmpeg_command() -> Command {
     cmd
 }
 
-fn run(args: Vec<String>) -> Result<Output, String> {
+pub(crate) fn run(args: Vec<String>) -> Result<Output, String> {
     ffmpeg_command().args(args).output().map_err(|e| format!("could not run FFmpeg ({e}); install it ({INSTALL_HINT}) or point SNN_FFMPEG at ffmpeg.exe"))
 }
 
@@ -254,7 +254,7 @@ pub fn supports_export() -> bool {
 }
 
 /// The last lines FFmpeg printed, which is where it says what went wrong.
-fn failure(out: &Output) -> String {
+pub(crate) fn failure(out: &Output) -> String {
     let text = String::from_utf8_lossy(&out.stderr);
     let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
     format!("FFmpeg could not read the file: {}", lines[lines.len().saturating_sub(3)..].join(" | "))

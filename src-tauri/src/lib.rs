@@ -218,6 +218,18 @@ fn probe_audio(path: String) -> Option<bool> {
     snn_core::probe_mp4(std::path::Path::new(&path)).ok().map(|p| p.has_audio)
 }
 
+/// The sound tracks of a media file and their channels, for the Caption tab's pickers.
+#[tauri::command]
+async fn media_audio_streams(core: State<'_, Core>, media: String) -> Result<Vec<snn_core::AudioStream>, String> {
+    let path = {
+        let editor = core.0.lock().unwrap();
+        editor.project().media(&media).map(|m| m.path.clone()).ok_or_else(|| format!("no media {media} in the project"))?
+    };
+    tauri::async_runtime::spawn_blocking(move || snn_core::audio_streams(&path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 fn execute(app: AppHandle, core: State<Core>, command: Command) -> Result<serde_json::Value, String> {
     let mut editor = core.0.lock().unwrap();
@@ -322,6 +334,8 @@ pub fn run() {
             ai::ai_set_model,
             ai::ai_models,
             ai::ai_chat,
+            ai::ai_transcribe,
+            media_audio_streams,
             get_state,
             mcp_status,
             library,

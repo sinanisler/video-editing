@@ -34,6 +34,8 @@ export const core = createStore<{ state: EditorState | null; mcp: McpStatus | nu
 });
 
 export type Tool = "select" | "razor";
+/** The parts of the AI tab. */
+export type AiSub = "chat" | "settings" | "connect";
 
 /** One row of a right-click menu. A row of colour swatches, or a separator, are the other two kinds. */
 export type MenuItem =
@@ -57,6 +59,8 @@ export const ui = createStore({
   selection: [] as string[],
   leftTab: "media",
   rightTab: "inspector",
+  /** Which part of the AI tab is open. Clicking the tab opens Chat; the MCP pill opens Connect MCP. */
+  aiTab: "chat" as AiSub,
   overlay: null as Overlay,
   safeArea: false,
   /** Inspector values being dragged, previewed before they are committed. */

@@ -30,7 +30,7 @@ export function TopBar() {
       <button className="ghost" data-tip="Search every command by name and run it (Ctrl+K)" onClick={() => runCommand("palette")}>
         Commands <kbd>Ctrl K</kbd>
       </button>
-      <span className="pill" data-tip="MCP server status" onClick={() => ui.set({ rightTab: "agent" })}>
+      <span className="pill" data-tip="MCP server status. Click to open Connect MCP" onClick={() => ui.set({ rightTab: "agent", aiTab: "connect" })}>
         <span className={mcp?.running ? "dot" : "dot off"} />
         MCP · {mcp?.running ? "on" : "off"}
       </span>

@@ -1,8 +1,29 @@
+import type { SpeechCue } from "./ai";
+import type { Clip } from "./types";
+
 /** One subtitle: when it shows, in seconds, and what it says. */
 export interface Cue {
   start: number;
   end: number;
   text: string;
+}
+
+/** Playback speed as a factor, where 1 is normal. Matches the preview and the export. */
+export const clipSpeed = (clip: Clip) => (typeof clip.props.speed === "number" ? clip.props.speed / 100 : 1);
+
+/**
+ * Places lines of speech from a clip's source on the timeline, using the clip's in point, speed and position.
+ * Lines outside the clip are dropped, and lines that run past its end are cut at the end, so no caption runs past the picture it belongs to.
+ * The lines are in seconds of the source file; the cues come back in seconds of the timeline.
+ */
+export function captionsForClip(clip: Clip, lines: SpeechCue[], fps: number): Cue[] {
+  const speed = clipSpeed(clip);
+  const toTimeline = (seconds: number) => (clip.start + (seconds * fps - clip.source_in) / speed) / fps;
+  const from = clip.start / fps;
+  const to = (clip.start + clip.duration) / fps;
+  return lines
+    .map((line) => ({ start: Math.max(toTimeline(line.start), from), end: Math.min(toTimeline(line.end), to), text: line.text }))
+    .filter((cue) => cue.end > cue.start);
 }
 
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", nbsp: " ", quot: '"', apos: "'" };

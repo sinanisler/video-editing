@@ -8,7 +8,8 @@ use crate::{publish, Core, SharedEditor};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager, State};
+use std::time::Duration;
+use tauri::{AppHandle, Emitter, Manager, State};
 
 const SERVICE: &str = "snn-editor";
 const KEY_ACCOUNT: &str = "openrouter-api-key";
@@ -20,16 +21,30 @@ const ACTOR: &str = "ai";
 const MAX_ROUNDS: usize = 16;
 /// Longest tool result sent back to the model, in characters.
 const MAX_RESULT: usize = 12_000;
+/// The chat model until the user picks another: small, fast and able to use tools.
+const DEFAULT_CHAT_MODEL: &str = "~anthropic/claude-haiku-latest";
+/// The model that writes captions from a clip's sound until the user picks another.
+const DEFAULT_SUBTITLE_MODEL: &str = "openai/whisper-large-v3";
+/// How long one transcription request may take on this side. Upstream providers stop at 60 seconds.
+const TRANSCRIBE_TIMEOUT: Duration = Duration::from_secs(120);
 
 const SYSTEM: &str = "You are the editing assistant inside snn-editor, working on the project the user has open. Read before \
 you change: use timeline_get_state, captions_read and the frame and audio tools, and check the result of every edit. Times \
 are frames at the project's frame rate; project_get_info gives the fps when you talk about seconds. The user can undo \
 anything you do. Keep replies short and say what you changed.";
 
-#[derive(Serialize, Deserialize, Default)]
+/// The models the user picked. A setting that is missing from the file takes its default.
+#[derive(Serialize, Deserialize)]
+#[serde(default)]
 struct Settings {
     agent_model: Option<String>,
     whisper_model: Option<String>,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Settings { agent_model: Some(DEFAULT_CHAT_MODEL.into()), whisper_model: Some(DEFAULT_SUBTITLE_MODEL.into()) }
+    }
 }
 
 fn settings_file(app: &AppHandle) -> Result<PathBuf, String> {
@@ -115,10 +130,34 @@ pub fn ai_set_model(app: AppHandle, role: String, model: Option<String>) -> Resu
 
 /// The models OpenRouter offers now, with what the picker needs: whether the model can use tools, what it reads and
 /// writes, and its prices. Fetched when the AI tab opens, so new models appear without an app update.
+/// The picker's view of OpenRouter's model list: what each model reads and writes, whether it can use tools, and its prices.
+fn picker_models(body: &Value) -> Vec<Value> {
+    let strings = |v: &Value| -> Vec<String> { v.as_array().into_iter().flatten().filter_map(Value::as_str).map(String::from).collect() };
+    body["data"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|m| {
+            json!({
+                "id": m["id"],
+                "name": m["name"],
+                "context_length": m["context_length"],
+                "tools": strings(&m["supported_parameters"]).iter().any(|p| p.as_str() == "tools"),
+                "input": strings(&m["architecture"]["input_modalities"]),
+                "output": strings(&m["architecture"]["output_modalities"]),
+                "prompt_price": m["pricing"]["prompt"],
+                "completion_price": m["pricing"]["completion"],
+            })
+        })
+        .collect()
+}
+
+/// The models OpenRouter offers now. Fetched when the AI tab opens, so new models appear without an app update.
+/// Speech-to-text models are left out unless every output kind is asked for, so the list asks for all of them.
 #[tauri::command]
 pub async fn ai_models() -> Result<Value, String> {
     tauri::async_runtime::spawn_blocking(|| {
-        let mut request = ureq::get(&format!("{API}/models")).set("X-Title", TITLE);
+        let mut request = ureq::get(&format!("{API}/models?output_modalities=all")).set("X-Title", TITLE);
         if let Some(key) = saved_key()? {
             request = request.set("Authorization", &format!("Bearer {key}"));
         }
@@ -127,28 +166,59 @@ pub async fn ai_models() -> Result<Value, String> {
             .map_err(describe)?
             .into_json()
             .map_err(|e| format!("the model list could not be read: {e}"))?;
-        let strings = |v: &Value| -> Vec<String> { v.as_array().into_iter().flatten().filter_map(Value::as_str).map(String::from).collect() };
-        let models: Vec<Value> = body["data"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|m| {
-                json!({
-                    "id": m["id"],
-                    "name": m["name"],
-                    "context_length": m["context_length"],
-                    "tools": strings(&m["supported_parameters"]).iter().any(|p| p.as_str() == "tools"),
-                    "input": strings(&m["architecture"]["input_modalities"]),
-                    "output": strings(&m["architecture"]["output_modalities"]),
-                    "prompt_price": m["pricing"]["prompt"],
-                    "completion_price": m["pricing"]["completion"],
-                })
-            })
-            .collect();
-        Ok(json!({ "models": models }))
+        Ok(json!({ "models": picker_models(&body) }))
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// Writes captions for part of a media file. The sound of one track, or one channel of it, is cut into short MP3s and each
+/// is sent to the subtitle model. Returns the lines with the seconds they are heard, from the start of the file.
+/// Nothing is written to the project here; the window adds the captions as one undo step.
+#[tauri::command]
+pub async fn ai_transcribe(app: AppHandle, core: State<'_, Core>, media: String, track: usize, channel: Option<usize>, from: f64, to: f64) -> Result<Vec<snn_core::SpeechCue>, String> {
+    // The editor is not held while the sound is cut and sent, so the timeline stays usable meanwhile.
+    let path = {
+        let editor = core.0.lock().unwrap();
+        editor.project().media(&media).map(|m| m.path.clone()).ok_or_else(|| format!("no media {media} in the project"))?
+    };
+    let model = load_settings(&app).whisper_model.ok_or("Choose a subtitle model in AI Settings first.")?;
+    let key = saved_key()?.ok_or("Add your OpenRouter key in AI Settings first.")?;
+    tauri::async_runtime::spawn_blocking(move || transcribe(&app, &key, &model, &path, track, channel, from, to))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// The request for one part of sound: a mono MP3 in base64, asking for timings for each segment of speech.
+fn transcription_request(model: &str, mp3: &[u8]) -> Value {
+    json!({
+        "model": model,
+        "input_audio": { "data": snn_core::base64(mp3), "format": "mp3" },
+        "response_format": "verbose_json",
+        "timestamp_granularities": ["segment"],
+    })
+}
+
+fn transcribe(app: &AppHandle, key: &str, model: &str, path: &str, track: usize, channel: Option<usize>, from: f64, to: f64) -> Result<Vec<snn_core::SpeechCue>, String> {
+    let spans = snn_core::chunk_spans(from, to);
+    if spans.is_empty() {
+        return Err("the clip has no sound to caption".into());
+    }
+    let mut lines = vec![];
+    for (done, (start, length)) in spans.iter().enumerate() {
+        let mp3 = snn_core::speech_audio(path, *start, *length, track, channel)?;
+        let answer: Value = ureq::post(&format!("{API}/audio/transcriptions"))
+            .set("Authorization", &format!("Bearer {key}"))
+            .set("X-Title", TITLE)
+            .timeout(TRANSCRIBE_TIMEOUT)
+            .send_json(transcription_request(model, &mp3))
+            .map_err(describe)?
+            .into_json()
+            .map_err(|e| format!("OpenRouter's answer could not be read: {e}"))?;
+        lines.extend(snn_core::parse_speech(&answer, *start)?);
+        app.emit("captions:progress", json!({ "done": done + 1, "total": spans.len() })).ok();
+    }
+    Ok(lines)
 }
 
 /// One message from the user: runs the chat until the model answers without asking for tools. Returns the messages
@@ -255,6 +325,53 @@ mod tests {
         assert!(names.contains(&"timeline_get_state") && names.contains(&"captions_read"));
         assert!(!names.iter().any(|n| n.starts_with("export_")));
         assert!(specs.iter().all(|s| s["function"]["parameters"]["type"] == "object"));
+    }
+
+    #[test]
+    fn the_models_start_as_the_small_chat_model_and_whisper() {
+        let settings = Settings::default();
+        assert_eq!(settings.agent_model.as_deref(), Some("~anthropic/claude-haiku-latest"));
+        assert_eq!(settings.whisper_model.as_deref(), Some("openai/whisper-large-v3"));
+        // A settings file written before a setting existed still gets its default for it.
+        let older: Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!(older.agent_model, settings.agent_model);
+        assert_eq!(older.whisper_model, settings.whisper_model);
+        let chosen: Settings = serde_json::from_str(r#"{ "whisper_model": "openai/whisper-1" }"#).unwrap();
+        assert_eq!(chosen.agent_model, settings.agent_model);
+        assert_eq!(chosen.whisper_model.as_deref(), Some("openai/whisper-1"));
+    }
+
+    #[test]
+    fn speech_to_text_models_come_through_the_picker_with_their_output_kind() {
+        // Shaped like OpenRouter's entry for Whisper, which the default model list leaves out.
+        let body = json!({ "data": [
+            {
+                "id": "openai/whisper-large-v3", "name": "OpenAI: Whisper Large V3", "context_length": 0,
+                "architecture": { "input_modalities": ["audio"], "output_modalities": ["transcription"] },
+                "pricing": { "prompt": "0.0000075", "completion": "0" }, "supported_parameters": []
+            },
+            {
+                "id": "~anthropic/claude-haiku-latest", "name": "Anthropic: Claude Haiku Latest", "context_length": 1000000,
+                "architecture": { "input_modalities": ["text", "image"], "output_modalities": ["text"] },
+                "pricing": { "prompt": "0.0000001", "completion": "0.0000005" }, "supported_parameters": ["tools", "temperature"]
+            }
+        ] });
+        let models = picker_models(&body);
+        assert_eq!(models[0]["id"], "openai/whisper-large-v3");
+        assert_eq!(models[0]["output"], json!(["transcription"]));
+        assert_eq!(models[0]["tools"], false);
+        assert_eq!(models[1]["tools"], true);
+        assert_eq!(models[1]["output"], json!(["text"]));
+    }
+
+    #[test]
+    fn a_transcription_request_sends_mp3_and_asks_for_segment_timings() {
+        let request = transcription_request("openai/whisper-large-v3", b"ID3");
+        assert_eq!(request["model"], "openai/whisper-large-v3");
+        assert_eq!(request["input_audio"]["format"], "mp3");
+        assert_eq!(request["input_audio"]["data"], snn_core::base64(b"ID3").as_str());
+        assert_eq!(request["response_format"], "verbose_json");
+        assert_eq!(request["timestamp_granularities"], json!(["segment"]));
     }
 
     #[test]

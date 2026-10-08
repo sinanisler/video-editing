@@ -3,8 +3,10 @@ import { aiChat, aiClearKey, aiModels, aiSetKey, aiSetModel, aiState, perMillion
 import type { AiModel, AiState, ChatMessage } from "../ai";
 import { reader } from "../look";
 import { commitProps as commit, core, exec, previewProps as preview, toast, ui } from "../store";
+import type { AiSub } from "../store";
 import type { Clip, LogEntry, MediaItem, PropDef, Track, Transition } from "../types";
 import { clamp, fpsOf, timecode } from "../util";
+import { CaptionTab } from "./CaptionTab";
 import { Tabs } from "./Tabs";
 
 const decimals = (step: number) => (step >= 1 ? 0 : step >= 0.1 ? 1 : 2);
@@ -354,18 +356,6 @@ function Inspector() {
   );
 }
 
-function Transcript() {
-  return (
-    <div className="empty">
-      <b>No transcript yet</b>
-      <p>
-        Subtitle generation through OpenRouter arrives with the context milestone. It will fill this panel with
-        word-level text, mark silences, and add a captions track.
-      </p>
-    </div>
-  );
-}
-
 function LogLine({ e }: { e: LogEntry }) {
   const agent = e.actor !== "user";
   return (
@@ -379,18 +369,18 @@ function LogLine({ e }: { e: LogEntry }) {
 
 const AI_TABS: [string, string, string][] = [
   ["chat", "Chat", "Give the AI model orders. It edits the project with the same tools the MCP server offers"],
-  ["model", "Model", "The OpenRouter key, the chat model and the subtitle model"],
-  ["connect", "Connect", "Connect an outside agent such as Claude Code, and see what agents changed"],
+  ["settings", "AI Settings", "The OpenRouter key, the chat model, and the model that writes captions from sound"],
+  ["connect", "Connect MCP", "Connect an outside agent such as Claude Code, and see what agents changed"],
 ];
 
-/** The AI tab: a chat with a model from OpenRouter, the settings it needs, and the connection for outside agents. */
+/** The AI tab: a chat with a model from OpenRouter, its settings, and the connection for outside agents. */
 function AiTab() {
-  const [sub, setSub] = useState("chat");
+  const sub = ui.use((s) => s.aiTab);
   return (
     <>
-      <Tabs value={sub} onChange={setSub} tabs={AI_TABS} />
+      <Tabs value={sub} onChange={(aiTab) => ui.set({ aiTab: aiTab as AiSub })} tabs={AI_TABS} />
       {sub === "chat" && <Chat />}
-      {sub === "model" && <Models />}
+      {sub === "settings" && <Models />}
       {sub === "connect" && <Connect />}
     </>
   );
@@ -438,7 +428,7 @@ function Chat() {
     <>
       {!ready && (
         <p className="hint">
-          {state?.has_key ? "Choose a chat model in the Model tab." : "Add your OpenRouter key and choose a chat model in the Model tab."}
+          {state?.has_key ? "Choose a chat model in AI Settings." : "Add your OpenRouter key in AI Settings to start chatting."}
         </p>
       )}
       <div className="chatlog">
@@ -494,12 +484,17 @@ function Models() {
   const [search, setSearch] = useState("");
   const [toolsOnly, setToolsOnly] = useState(true);
   const [error, setError] = useState("");
+  const [loadFailed, setLoadFailed] = useState(false);
   const refresh = () => aiState().then(setState, (e) => setError(String(e)));
   const loadModels = () =>
     aiModels().then(
-      (r) => setModels(r.models),
+      (r) => {
+        setModels(r.models);
+        setLoadFailed(false);
+      },
       (e) => {
         setModels([]);
+        setLoadFailed(true);
         setError(String(e));
       },
     );
@@ -538,8 +533,10 @@ function Models() {
   };
   const query = search.trim().toLowerCase();
   const matches = (m: AiModel) => !query || m.id.toLowerCase().includes(query) || m.name.toLowerCase().includes(query);
-  const chatModels = (models ?? []).filter((m) => (!toolsOnly || m.tools) && matches(m)).slice(0, 200);
-  const subtitleModels = (models ?? []).filter((m) => m.output.includes("transcription") && matches(m)).slice(0, 200);
+  // The chat writes text, so only models with text output are offered. Every matching model is listed; search narrows them.
+  const chatModels = (models ?? []).filter((m) => m.output.includes("text") && (!toolsOnly || m.tools) && matches(m));
+  const subtitleModels = (models ?? []).filter((m) => m.output.includes("transcription") && matches(m));
+  const noModels = loadFailed ? "The model list could not be loaded. The message below says why." : "No models match.";
   return (
     <>
       <div className="card">
@@ -574,18 +571,18 @@ function Models() {
         <label className="hint">
           <input type="checkbox" checked={toolsOnly} onChange={(e) => setToolsOnly(e.target.checked)} /> Only models that can use tools
         </label>
-        <ModelList models={chatModels} chosen={state?.agent_model ?? null} loading={models === null} onPick={(id) => void choose("agent", id)} />
+        <ModelList models={chatModels} chosen={state?.agent_model ?? null} loading={models === null} empty={noModels} onPick={(id) => void choose("agent", id)} />
       </div>
       <div className="card">
-        <b>Subtitle model (Whisper)</b>
+        <b>Auto to subtitle</b>
         <p className="hint">
-          Writes subtitles from the audio, so the AI knows what is said at each moment. The choice is saved; generating subtitles is not set up yet.
+          The speech-to-text model that writes captions from a clip's sound. The Caption tab uses it; only the sound is sent, not the picture.
         </p>
         <ModelList
           models={subtitleModels}
           chosen={state?.whisper_model ?? null}
           loading={models === null}
-          empty="OpenRouter lists no transcription models right now."
+          empty={loadFailed ? noModels : "OpenRouter lists no speech-to-text models right now."}
           onPick={(id) => void choose("whisper", id)}
         />
       </div>
@@ -611,14 +608,18 @@ function ModelList({
   if (models.length === 0) return <p className="hint">{empty}</p>;
   return (
     <div className="modellist">
-      {models.map((m) => (
-        <button key={m.id} className={`modelrow ${m.id === chosen ? "on" : ""}`} data-tip={m.id} onClick={() => onPick(m.id)}>
-          <span>{m.name}</span>
-          <small>
-            {m.id} · {m.context_length ? `${Math.round(m.context_length / 1000)}k context` : "context unknown"} · {perMillion(m.prompt_price)}
-          </small>
-        </button>
-      ))}
+      {models.map((m) => {
+        // Speech-to-text is billed by the length of the audio, so a per-token price would mislead.
+        const price = m.output.includes("transcription") ? "priced by audio length" : perMillion(m.prompt_price);
+        return (
+          <button key={m.id} className={`modelrow ${m.id === chosen ? "on" : ""}`} data-tip={m.id} onClick={() => onPick(m.id)}>
+            <span>{m.name}</span>
+            <small>
+              {m.id} · {m.context_length ? `${Math.round(m.context_length / 1000)}k context` : "context unknown"} · {price}
+            </small>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -669,16 +670,17 @@ export function RightPanel() {
     <div className="panel" id="right">
       <Tabs
         value={tab}
-        onChange={(rightTab) => ui.set({ rightTab })}
+        // Opening the AI tab always starts on Chat; the MCP pill is the one way to land on Connect MCP.
+        onChange={(rightTab) => ui.set(rightTab === "agent" ? { rightTab, aiTab: "chat" } : { rightTab })}
         tabs={[
           ["inspector", "Inspector", "Properties of the selected clip"],
-          ["transcript", "Transcript", "Words and captions for the clip (coming soon)"],
+          ["caption", "Caption", "Write captions from the sound of the selected clip"],
           ["agent", "AI", "Chat with an AI model that edits the project, and choose its models"],
         ]}
       />
       <div className="pane">
         {tab === "inspector" && <Inspector />}
-        {tab === "transcript" && <Transcript />}
+        {tab === "caption" && <CaptionTab />}
         {tab === "agent" && <AiTab />}
       </div>
     </div>

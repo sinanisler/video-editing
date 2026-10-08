@@ -16,18 +16,19 @@ export function pickSubtitleFile(): Promise<File | null> {
 }
 
 /**
- * Adds each subtitle as a caption clip on the first unlocked captions track, as one undo step.
+ * Adds each cue as a caption clip on the first unlocked captions track, as one undo step. Cue times are seconds on the timeline.
  * A cue that would overlap a caption already there is skipped. A cue that overlaps the one before it starts when that one ends.
+ * Resolves to how many were added and skipped, or null when nothing was added.
  */
-export async function importSubtitles(file: File) {
+export async function addCaptions(cues: Cue[]): Promise<{ added: number; skipped: number } | null> {
   const p = project();
-  if (!p) return;
+  if (!p) return null;
   const track = p.sequence.tracks.find((t) => t.kind === "caption" && !t.locked);
-  if (!track) return toast("No unlocked captions track to put the subtitles on");
+  if (!track) {
+    toast("No unlocked captions track to put the captions on");
+    return null;
+  }
   const fps = fpsOf(p);
-  const cues = parseSubtitles(await file.text());
-  if (!cues.length) return toast(`No subtitles found in ${file.name}`);
-
   const existing = p.sequence.clips.filter((c) => c.track === track.id);
   const commands: { tool: string; args: Record<string, unknown> }[] = [];
   let skipped = 0;
@@ -46,10 +47,22 @@ export async function importSubtitles(file: File) {
     });
     previousEnd = end;
   }
-  if (!commands.length) return toast(`None of the ${cues.length} subtitles fit on the captions track`);
+  if (!commands.length) {
+    toast(`None of the ${cues.length} captions fit on the captions track`);
+    return null;
+  }
   const done = await execBatch(commands);
-  if (done) toast(`Imported ${commands.length} subtitles${skipped ? `, skipped ${skipped} that overlap` : ""}`);
+  return done ? { added: commands.length, skipped } : null;
 }
+
+/** Adds the captions in a subtitle file. */
+export async function importSubtitles(file: File) {
+  const cues = parseSubtitles(await file.text());
+  if (!cues.length) return toast(`No subtitles found in ${file.name}`);
+  const result = await addCaptions(cues);
+  if (result) toast(`Imported ${result.added} subtitles${result.skipped ? `, skipped ${result.skipped} that overlap` : ""}`);
+}
+
 
 /** Saves the captions track as an SRT or WebVTT file through a browser download. */
 export function exportSubtitles(format: "srt" | "vtt") {
