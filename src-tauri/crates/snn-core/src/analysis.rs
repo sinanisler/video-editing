@@ -215,7 +215,42 @@ pub(crate) fn ffmpeg_command() -> Command {
 }
 
 fn run(args: Vec<String>) -> Result<Output, String> {
-    ffmpeg_command().args(args).output().map_err(|e| format!("could not run FFmpeg ({e}); install it (winget install Gyan.FFmpeg) or point SNN_FFMPEG at ffmpeg.exe"))
+    ffmpeg_command().args(args).output().map_err(|e| format!("could not run FFmpeg ({e}); install it ({INSTALL_HINT}) or point SNN_FFMPEG at ffmpeg.exe"))
+}
+
+/// What to install when FFmpeg is missing or cannot export. 7.0 is the oldest build with the `-/filter_complex` option
+/// the exports use; 7.0.2 is the one the NVENC driver tests were run with.
+pub const INSTALL_HINT: &str = "winget install Gyan.FFmpeg --version 7.0.2";
+
+/// The version of the FFmpeg this app runs, such as "7.0.2-full_build-www.gyan.dev". Empty when FFmpeg does not run.
+pub fn ffmpeg_version() -> String {
+    static VERSION: OnceLock<String> = OnceLock::new();
+    VERSION
+        .get_or_init(|| {
+            run(vec!["-version".into()])
+                .ok()
+                .and_then(|out| String::from_utf8_lossy(&out.stdout).split_whitespace().nth(2).map(str::to_string))
+                .unwrap_or_default()
+        })
+        .clone()
+}
+
+/// Whether this FFmpeg accepts the `-/filter_complex` option that every export uses. Older builds, such as 6.1, stop with
+/// "Option not found". The check runs a one-line filter graph, because the option is not listed in the help text of every build.
+pub fn supports_export() -> bool {
+    static SUPPORTED: OnceLock<bool> = OnceLock::new();
+    *SUPPORTED.get_or_init(|| {
+        let script = std::env::temp_dir().join(format!("snn-filter-probe-{}.txt", std::process::id()));
+        if std::fs::write(&script, "[0:v]null[v]").is_err() {
+            return false;
+        }
+        let args: Vec<String> = ["-f", "lavfi", "-i", "color=s=16x16:d=0.1", "-/filter_complex", &script.display().to_string(), "-map", "[v]", "-f", "null", "-"]
+            .map(String::from)
+            .into();
+        let works = run(args).is_ok_and(|out| out.status.success());
+        std::fs::remove_file(&script).ok();
+        works
+    })
 }
 
 /// The last lines FFmpeg printed, which is where it says what went wrong.

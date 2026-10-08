@@ -1,4 +1,6 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { aiChat, aiClearKey, aiModels, aiSetKey, aiSetModel, aiState, perMillion } from "../ai";
+import type { AiModel, AiState, ChatMessage } from "../ai";
 import { reader } from "../look";
 import { commitProps as commit, core, exec, previewProps as preview, toast, ui } from "../store";
 import type { Clip, LogEntry, MediaItem, PropDef, Track, Transition } from "../types";
@@ -375,7 +377,253 @@ function LogLine({ e }: { e: LogEntry }) {
   );
 }
 
-function Agent() {
+const AI_TABS: [string, string, string][] = [
+  ["chat", "Chat", "Give the AI model orders. It edits the project with the same tools the MCP server offers"],
+  ["model", "Model", "The OpenRouter key, the chat model and the subtitle model"],
+  ["connect", "Connect", "Connect an outside agent such as Claude Code, and see what agents changed"],
+];
+
+/** The AI tab: a chat with a model from OpenRouter, the settings it needs, and the connection for outside agents. */
+function AiTab() {
+  const [sub, setSub] = useState("chat");
+  return (
+    <>
+      <Tabs value={sub} onChange={setSub} tabs={AI_TABS} />
+      {sub === "chat" && <Chat />}
+      {sub === "model" && <Models />}
+      {sub === "connect" && <Connect />}
+    </>
+  );
+}
+
+type Shown = { kind: "user" | "assistant" | "tools" | "error"; text: string };
+
+function Chat() {
+  const [state, setState] = useState<AiState | null>(null);
+  // The model's own history, sent back with each message so it remembers the conversation.
+  const [history, setHistory] = useState<ChatMessage[]>([]);
+  const [shown, setShown] = useState<Shown[]>([]);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    aiState().then(setState, (e) => setShown((s) => [...s, { kind: "error", text: String(e) }]));
+  }, []);
+  const ready = !!state?.has_key && !!state?.agent_model;
+  const send = async () => {
+    const text = draft.trim();
+    if (!text || busy || !ready) return;
+    const next: ChatMessage[] = [...history, { role: "user", content: text }];
+    setDraft("");
+    setBusy(true);
+    setShown((s) => [...s, { kind: "user", text }]);
+    try {
+      const turn = await aiChat(next);
+      setHistory([...next, ...turn.messages]);
+      const answer = turn.messages
+        .filter((m) => m.role === "assistant" && m.content)
+        .map((m) => m.content)
+        .join("\n\n");
+      const lines: Shown[] = [];
+      if (turn.calls.length) lines.push({ kind: "tools", text: turn.calls.map((c) => (c.ok ? c.name : `${c.name} (failed)`)).join(" · ") });
+      lines.push({ kind: "assistant", text: answer || "Done." });
+      setShown((s) => [...s, ...lines]);
+    } catch (e) {
+      // The message did not go through, so the next one should not carry it.
+      setShown((s) => [...s, { kind: "error", text: String(e) }]);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      {!ready && (
+        <p className="hint">
+          {state?.has_key ? "Choose a chat model in the Model tab." : "Add your OpenRouter key and choose a chat model in the Model tab."}
+        </p>
+      )}
+      <div className="chatlog">
+        {shown.length === 0 && ready && (
+          <p className="hint">Ask for an edit, for example “remove the silences longer than a second”. Changes show in the timeline and can be undone.</p>
+        )}
+        {shown.map((m, i) => (
+          <div key={i} className={`chatmsg ${m.kind}`}>
+            {m.text}
+          </div>
+        ))}
+        {busy && <div className="chatmsg tools">Thinking…</div>}
+      </div>
+      <div className="chatinput">
+        <textarea
+          rows={3}
+          value={draft}
+          disabled={!ready}
+          placeholder="Tell the AI what to do…"
+          data-tip="Enter sends. Shift+Enter starts a new line."
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              void send();
+            }
+          }}
+        />
+        <button className="primary" disabled={!ready || busy || !draft.trim()} data-tip="Send this to the AI model" onClick={() => void send()}>
+          Send
+        </button>
+      </div>
+      <div className="line">
+        <button
+          disabled={busy}
+          data-tip="Start over; the AI forgets this conversation (the edits stay)"
+          onClick={() => {
+            setHistory([]);
+            setShown([]);
+          }}
+        >
+          New chat
+        </button>
+      </div>
+    </>
+  );
+}
+
+function Models() {
+  const [state, setState] = useState<AiState | null>(null);
+  const [models, setModels] = useState<AiModel[] | null>(null);
+  const [key, setKey] = useState("");
+  const [search, setSearch] = useState("");
+  const [toolsOnly, setToolsOnly] = useState(true);
+  const [error, setError] = useState("");
+  const refresh = () => aiState().then(setState, (e) => setError(String(e)));
+  const loadModels = () =>
+    aiModels().then(
+      (r) => setModels(r.models),
+      (e) => {
+        setModels([]);
+        setError(String(e));
+      },
+    );
+  useEffect(() => {
+    void refresh();
+    void loadModels();
+  }, []);
+  const saveKey = async () => {
+    try {
+      await aiSetKey(key);
+      setKey("");
+      setError("");
+      await refresh();
+      await loadModels();
+      toast("Key saved");
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+  const removeKey = async () => {
+    try {
+      await aiClearKey();
+      await refresh();
+      toast("Key removed");
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+  const choose = async (role: "agent" | "whisper", id: string) => {
+    try {
+      await aiSetModel(role, id);
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+  const query = search.trim().toLowerCase();
+  const matches = (m: AiModel) => !query || m.id.toLowerCase().includes(query) || m.name.toLowerCase().includes(query);
+  const chatModels = (models ?? []).filter((m) => (!toolsOnly || m.tools) && matches(m)).slice(0, 200);
+  const subtitleModels = (models ?? []).filter((m) => m.output.includes("transcription") && matches(m)).slice(0, 200);
+  return (
+    <>
+      <div className="card">
+        <b>OpenRouter key</b>
+        {state?.has_key ? (
+          <div className="line">
+            <span className="dim">A key is saved in the Windows credential store.</span>
+            <button data-tip="Forget the saved key" onClick={() => void removeKey()}>Remove</button>
+          </div>
+        ) : (
+          <p className="hint">No key yet. Create one at openrouter.ai and paste it here. It is stored in the Windows credential store, not in the project.</p>
+        )}
+        <div className="line">
+          <input
+            type="password"
+            value={key}
+            placeholder={state?.has_key ? "Replace the saved key" : "Paste your key"}
+            data-tip="Your OpenRouter API key"
+            onChange={(e) => setKey(e.target.value)}
+          />
+          <button className="primary" disabled={!key.trim()} data-tip="Save this key" onClick={() => void saveKey()}>
+            Save key
+          </button>
+        </div>
+      </div>
+      <div className="card">
+        <b>Chat model</b>
+        <p className="hint">{state?.agent_model ? `Chosen: ${state.agent_model}` : "Pick a model. Only models that can use tools can edit the project."}</p>
+        <div className="line">
+          <input placeholder="Search models" value={search} data-tip="Filter the list by name or id" onChange={(e) => setSearch(e.target.value)} />
+        </div>
+        <label className="hint">
+          <input type="checkbox" checked={toolsOnly} onChange={(e) => setToolsOnly(e.target.checked)} /> Only models that can use tools
+        </label>
+        <ModelList models={chatModels} chosen={state?.agent_model ?? null} loading={models === null} onPick={(id) => void choose("agent", id)} />
+      </div>
+      <div className="card">
+        <b>Subtitle model (Whisper)</b>
+        <p className="hint">
+          Writes subtitles from the audio, so the AI knows what is said at each moment. The choice is saved; generating subtitles is not set up yet.
+        </p>
+        <ModelList
+          models={subtitleModels}
+          chosen={state?.whisper_model ?? null}
+          loading={models === null}
+          empty="OpenRouter lists no transcription models right now."
+          onPick={(id) => void choose("whisper", id)}
+        />
+      </div>
+      {error && <p className="hint err">{error}</p>}
+    </>
+  );
+}
+
+function ModelList({
+  models,
+  chosen,
+  loading,
+  empty = "No models match.",
+  onPick,
+}: {
+  models: AiModel[];
+  chosen: string | null;
+  loading: boolean;
+  empty?: string;
+  onPick: (id: string) => void;
+}) {
+  if (loading) return <p className="hint">Loading models from OpenRouter…</p>;
+  if (models.length === 0) return <p className="hint">{empty}</p>;
+  return (
+    <div className="modellist">
+      {models.map((m) => (
+        <button key={m.id} className={`modelrow ${m.id === chosen ? "on" : ""}`} data-tip={m.id} onClick={() => onPick(m.id)}>
+          <span>{m.name}</span>
+          <small>
+            {m.id} · {m.context_length ? `${Math.round(m.context_length / 1000)}k context` : "context unknown"} · {perMillion(m.prompt_price)}
+          </small>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Connect() {
   const log = core.use((s) => s.state)!.log;
   const mcp = core.use((s) => s.mcp);
   const connect = `claude mcp add --transport http snn-editor ${mcp?.url ?? ""}`;
@@ -425,13 +673,13 @@ export function RightPanel() {
         tabs={[
           ["inspector", "Inspector", "Properties of the selected clip"],
           ["transcript", "Transcript", "Words and captions for the clip (coming soon)"],
-          ["agent", "Agent", "Connect an AI agent and see what it changed"],
+          ["agent", "AI", "Chat with an AI model that edits the project, and choose its models"],
         ]}
       />
       <div className="pane">
         {tab === "inspector" && <Inspector />}
         {tab === "transcript" && <Transcript />}
-        {tab === "agent" && <Agent />}
+        {tab === "agent" && <AiTab />}
       </div>
     </div>
   );

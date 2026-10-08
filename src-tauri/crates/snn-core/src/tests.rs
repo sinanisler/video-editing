@@ -929,6 +929,76 @@ mod export {
         assert!(log.contains("Video: hevc") && log.contains("hvc1"), "{log}");
     }
 
+    /// What FFmpeg reports about a file: its streams, and the encoder that wrote it.
+    fn ffmpeg_report(file: &Path) -> String {
+        let out = Command::new(ffmpeg_path()).args(["-hide_banner", "-i", &file.display().to_string()]).output().unwrap();
+        String::from_utf8_lossy(&out.stderr).into_owned()
+    }
+
+    /// The graphics card's encoder makes the file, not the processor. The file records the encoder that wrote it, so the
+    /// test checks that. It is skipped unless this FFmpeg has a working NVENC encoder for the driver on this computer.
+    #[test]
+    fn exports_use_the_graphics_card_encoder() {
+        let Some(mut b) = Bench::new("nvenc") else { return };
+        let found = crate::available_encoders();
+        b.clip("V1", 0, 60, "steps.mp4", 0);
+        if found.iter().any(|e| e == "h264_nvenc") {
+            let (file, _) = b.export_with("nvenc-h264.mp4", 30.0, &[], "h264_nvenc", |s| {
+                s.rate = RateMode::Vbr;
+                s.bitrate_kbps = 2_000;
+                s.max_kbps = 3_000;
+            });
+            let report = ffmpeg_report(&file);
+            assert!(report.contains("h264_nvenc"), "the picture was not written by the card's encoder: {report}");
+        } else {
+            eprintln!("skipped H.264 on the card: no working h264_nvenc here");
+        }
+        if found.iter().any(|e| e == "hevc_nvenc") {
+            let (file, _) = b.export_with("nvenc-hevc.mp4", 30.0, &[], "hevc_nvenc", |s| {
+                s.codec = Codec::Hevc;
+                s.rate = RateMode::Cbr;
+                s.bitrate_kbps = 2_000;
+            });
+            let report = ffmpeg_report(&file);
+            assert!(report.contains("hevc_nvenc") && report.contains("hvc1"), "{report}");
+        } else {
+            eprintln!("skipped H.265 on the card: no working hevc_nvenc here");
+        }
+    }
+
+    /// Optional: a 20-second cut from a real recording, set with SNN_SAMPLE_VIDEO to its path. It uses the card's encoder
+    /// when there is one, and the processor's otherwise. Without the variable the test does nothing.
+    #[test]
+    fn real_footage_exports() {
+        let Some(sample) = std::env::var_os("SNN_SAMPLE_VIDEO").map(PathBuf::from).filter(|p| p.is_file()) else { return };
+        let Some(mut b) = Bench::new("footage") else { return };
+        b.e.call_tool("t", "media_import", json!({"path": sample.display().to_string()})).unwrap();
+        let name = b.e.project().media.last().unwrap().name.clone();
+        // Twenty seconds, starting one minute into the recording.
+        b.clip("V1", 0, 600, &name, 1_800);
+        let encoder = if crate::available_encoders().iter().any(|e| e == "h264_nvenc") { "h264_nvenc" } else { "libx264" };
+        let (file, _) = b.export_with("footage.mp4", 30.0, &[], encoder, |s| {
+            s.rate = RateMode::Vbr;
+            s.bitrate_kbps = 8_000;
+            s.max_kbps = 12_000;
+        });
+        let report = ffmpeg_report(&file);
+        assert!(report.contains(encoder), "{report}");
+        eprintln!("real footage exported with {encoder}: {} bytes", std::fs::metadata(&file).unwrap().len());
+    }
+
+    /// The check that FFmpeg can export must agree with its version: 7.0 and newer have the `-/filter_complex` option.
+    #[test]
+    fn export_support_matches_the_build() {
+        let version = ffmpeg_version();
+        if version.is_empty() {
+            eprintln!("skipped: FFmpeg is not installed");
+            return;
+        }
+        let major: u32 = version.split('.').next().and_then(|m| m.parse().ok()).unwrap_or(0);
+        assert_eq!(supports_export(), major >= 7, "FFmpeg {version}");
+    }
+
     /// Every transition and effect in the library must come out as filters FFmpeg accepts.
     #[test]
     fn everything_in_the_library_renders() {
@@ -1173,4 +1243,24 @@ fn projects_saved_before_links_pair_video_with_its_sound() {
     assert_eq!(e.project().version, PROJECT_VERSION);
     assert!(link_of(&e, "v1").is_some() && link_of(&e, "v1") == link_of(&e, "a1"));
     assert!(link_of(&e, "v2").is_none() && link_of(&e, "a2").is_none());
+}
+
+/// The caption read tool lists caption text in time order, with frames and seconds, and can be limited to a span.
+#[test]
+fn captions_read_lists_caption_text_in_time_order() {
+    let mut e = Editor::default();
+    e.call_tool("t", "timeline_add_clip", json!({"track": "T1", "start": 60, "duration": 30, "name": "second", "kind": "caption", "text": "Second line"})).unwrap();
+    e.call_tool("t", "timeline_add_clip", json!({"track": "T1", "start": 0, "duration": 30, "name": "first", "kind": "caption", "text": "First line"})).unwrap();
+    let all = e.call_tool("t", "captions_read", json!({})).unwrap();
+    let captions = all["captions"].as_array().unwrap();
+    assert_eq!(captions.len(), 2);
+    assert_eq!(captions[0]["text"], json!("First line"));
+    assert_eq!(captions[1]["text"], json!("Second line"));
+    assert_eq!(captions[1]["start_frame"], json!(60));
+    assert_eq!(captions[1]["end_frame"], json!(90));
+    let fps = all["fps"].as_f64().unwrap();
+    assert!((captions[1]["start_seconds"].as_f64().unwrap() - 60.0 / fps).abs() < 1e-9);
+    let span = e.call_tool("t", "captions_read", json!({"from": 50, "to": 100})).unwrap();
+    assert_eq!(span["captions"].as_array().unwrap().len(), 1);
+    assert_eq!(span["captions"][0]["text"], json!("Second line"));
 }

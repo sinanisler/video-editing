@@ -83,6 +83,19 @@ pub fn catalog() -> Vec<ToolDef> {
         ),
         read("timeline_get_clip", "Everything stored about one clip.", obj(json!({ "clip": clip() }), &["clip"]), json!({ "clip": "c1" })),
         read(
+            "captions_read",
+            "The caption text on the caption tracks, in time order, with the frames and seconds each one shows. Use it to \
+             know what is said or shown at a moment. from and to limit it to a span of frames.",
+            obj(
+                json!({
+                    "from": frame("First frame to include; default the start of the timeline"),
+                    "to": frame("Frame the span ends at; default the end of the timeline"),
+                }),
+                &[],
+            ),
+            json!({}),
+        ),
+        read(
             "library_list",
             "Everything a clip can carry: property keys with their ranges and defaults, effect names, and transition \
              names. Read this before clip_set_property, clip_add_effect or clip_set_transition.",
@@ -572,6 +585,28 @@ impl Editor {
                 let id = args["clip"].as_str().ok_or("clip must be a string")?;
                 let c = p.clip(id).ok_or_else(|| format!("no clip {id}"))?;
                 Ok(serde_json::to_value(c).unwrap())
+            }
+            "captions_read" => {
+                let from = args["from"].as_i64().unwrap_or(0);
+                let to = args["to"].as_i64().unwrap_or(Frame::MAX);
+                let fps = p.settings.fps_num as f64 / p.settings.fps_den as f64;
+                let mut captions: Vec<&Clip> = seq.clips.iter().filter(|c| matches!(c.kind, ClipKind::Caption) && c.end() > from && c.start < to).collect();
+                captions.sort_by_key(|c| (c.start, c.id.clone()));
+                let captions: Vec<Value> = captions
+                    .iter()
+                    .map(|c| {
+                        json!({
+                            "clip": c.id,
+                            "track": c.track,
+                            "text": c.text.clone().unwrap_or_else(|| c.name.clone()),
+                            "start_frame": c.start,
+                            "end_frame": c.end(),
+                            "start_seconds": c.start as f64 / fps,
+                            "end_seconds": c.end() as f64 / fps,
+                        })
+                    })
+                    .collect();
+                Ok(json!({ "captions": captions, "fps": fps }))
             }
             // The window applies this; see the MCP server.
             "view_set" => {

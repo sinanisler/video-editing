@@ -194,9 +194,15 @@ export function ExportDialog() {
         : `constant bitrate ${mbps(settings.bitrate_kbps)} Mbps`;
 
   const problems: string[] = [];
-  if (!encoderWorks) {
+  if (!options.ffmpeg.supports_export) {
+    problems.push(
+      options.ffmpeg.version
+        ? `This FFmpeg (${options.ffmpeg.version}) is too old for exports; FFmpeg 7.0 or newer is needed. Install it with: ${options.ffmpeg.install}`
+        : `FFmpeg was not found. Install it with: ${options.ffmpeg.install}`,
+    );
+  } else if (!encoderWorks) {
     const why = broken.map((u) => `${ENCODER_NAMES[u.encoder]}: ${u.reason}`).join(" ");
-    problems.push(`No ${codecLabel} encoder works on this computer. ${why || "FFmpeg was not found."}`);
+    problems.push(`No ${codecLabel} encoder works on this computer. ${why}`);
   }
   if (settings.two_pass && settings.rate !== "vbr") problems.push("Two passes need variable bitrate.");
   if (settings.two_pass && !twoPassAllowed) problems.push(`Two passes run on the processor, and ${software} does not work here.`);
@@ -376,7 +382,7 @@ export function ExportDialog() {
         {problems.map((p) => (
           <div key={p} className="exportwarn">{p}</div>
         ))}
-        {options.encoders.length === 0 && <div className="exportwarn">FFmpeg was not found. Install it with: winget install Gyan.FFmpeg</div>}
+        <div className="exporthint">FFmpeg in use: {options.ffmpeg.version || "not found"}</div>
         <div className="actions">
           <button data-tip="Close without exporting" onClick={close}>Cancel</button>
           <button

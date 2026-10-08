@@ -58,6 +58,8 @@ export interface ExportOptions {
   /** A suggested output file. */
   path: string;
   has_range: boolean;
+  /** The FFmpeg this app runs: its version, whether it can export at all, and the command that installs the one it needs. */
+  ffmpeg: { version: string; supports_export: boolean; install: string };
 }
 
 /** The codec an encoder makes. Mirrors `codec_of` in the Rust core, which is what decides. */

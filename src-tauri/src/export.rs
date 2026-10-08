@@ -9,8 +9,8 @@ use crate::SharedEditor;
 use serde::Serialize;
 use serde_json::{json, Value};
 use snn_core::{
-    available_encoders, check_export, codec_name, codec_of, export_presets, plan_export, probe_streams, render, unavailable_encoders, unbase64, Codec,
-    ExportSettings, MediaInfo, TextTrack, CANCELLED,
+    available_encoders, check_export, codec_name, codec_of, export_presets, ffmpeg_version, plan_export, probe_streams, render, supports_export,
+    unavailable_encoders, unbase64, Codec, ExportSettings, MediaInfo, TextTrack, CANCELLED, INSTALL_HINT,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -103,6 +103,8 @@ pub fn options(app: &AppHandle, editor: &SharedEditor) -> Value {
     json!({
         "presets": export_presets(p),
         "encoders": available_encoders(),
+        // Which FFmpeg this is, and whether it can export at all. An old build can list encoders and still fail every export.
+        "ffmpeg": { "version": ffmpeg_version(), "supports_export": supports_export(), "install": INSTALL_HINT },
         // Encoders that did not start here, with FFmpeg's reason, so the window can say what to fix.
         "unavailable": unavailable_encoders().iter().map(|(encoder, reason)| json!({ "encoder": encoder, "reason": reason })).collect::<Vec<_>>(),
         "path": folder.join(format!("{name}.mp4")).display().to_string(),
@@ -142,9 +144,15 @@ pub fn begin(app: &AppHandle, exports: &Exports, editor: &SharedEditor, settings
     };
     let started = (|| {
         let (from, to) = check_export(editor.lock().unwrap().project(), &settings)?;
+        if ffmpeg_version().is_empty() {
+            return Err(format!("FFmpeg was not found; install it with: {INSTALL_HINT}"));
+        }
+        if !supports_export() {
+            return Err(format!("this FFmpeg ({}) is too old for exports; FFmpeg 7.0 or newer is needed. Install it with: {INSTALL_HINT}", ffmpeg_version()));
+        }
         let found = available_encoders();
         if found.is_empty() {
-            return Err("FFmpeg was not found, or none of its encoders works here; install it with: winget install Gyan.FFmpeg".into());
+            return Err(format!("none of FFmpeg's encoders works here; install FFmpeg with: {INSTALL_HINT}"));
         }
         let codec = settings.codec;
         let encoder = match settings.encoder.as_str() {

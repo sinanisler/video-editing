@@ -304,6 +304,19 @@ button.wide { width: 100%; padding: 7px; margin-bottom: 10px; }
 .exportsec:first-child { margin-top: 0; }
 .exportsummary { margin-top: 6px; padding: 8px 10px; background: #0f1115; border: 1px solid var(--line); border-radius: 5px; color: var(--text); line-height: 1.5; }
 .exportsummary div:last-child { color: var(--mute); }
+/* The AI chat and the model pickers. */
+.chatlog { display: flex; flex-direction: column; gap: 8px; max-height: 52vh; overflow: auto; padding: 4px 2px; }
+.chatmsg { padding: 7px 9px; border-radius: 6px; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chatmsg.user { background: #2a3140; align-self: flex-end; max-width: 92%; }
+.chatmsg.assistant { background: #1b1f27; border: 1px solid var(--line); max-width: 96%; }
+.chatmsg.tools { color: var(--mute); font-size: 12px; font-family: Consolas, monospace; }
+.chatmsg.error { color: #ff7b72; }
+.chatinput { display: flex; gap: 6px; margin-top: 8px; align-items: stretch; }
+.chatinput textarea { flex: 1; resize: vertical; }
+.modellist { display: flex; flex-direction: column; gap: 4px; max-height: 34vh; overflow: auto; margin-top: 6px; }
+.modelrow { display: flex; flex-direction: column; align-items: flex-start; width: 100%; text-align: left; padding: 5px 8px; }
+.modelrow.on { outline: 2px solid var(--accent); outline-offset: -1px; }
+.modelrow small { color: var(--mute); font-size: 12px; }
 .exportfile { color: var(--mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
 .exportline { margin-top: 8px; min-height: 22px; user-select: text; }
 .exportline .bad { color: #ff7b72; }

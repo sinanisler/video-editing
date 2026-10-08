@@ -17,7 +17,7 @@ mod render;
 mod scan;
 mod tools;
 
-pub use analysis::{available_encoders, base64, unavailable_encoders, unbase64, ffmpeg_path, is_analysis, probe_streams, Analysis, Job};
+pub use analysis::{available_encoders, base64, ffmpeg_version, supports_export, unavailable_encoders, unbase64, ffmpeg_path, is_analysis, probe_streams, Analysis, Job, INSTALL_HINT};
 pub use command::{apply, Command};
 pub use editor::{Editor, EditorState, LogEntry};
 pub use export::{codec_name, codec_of, check as check_export, plan as plan_export, presets as export_presets, AudioStreams, Chunk, Codec, ExportRange, ExportSettings, MediaInfo, Plan, Preset, Quality, RateMode, TextSpan, TextTrack, ENCODERS, SAMPLE_RATE};

@@ -1,3 +1,4 @@
+mod ai;
 mod export;
 mod mcp;
 
@@ -315,6 +316,12 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            ai::ai_state,
+            ai::ai_set_key,
+            ai::ai_clear_key,
+            ai::ai_set_model,
+            ai::ai_models,
+            ai::ai_chat,
             get_state,
             mcp_status,
             library,

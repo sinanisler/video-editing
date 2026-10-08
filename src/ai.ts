@@ -1,0 +1,50 @@
+// The AI chat's calls to the Rust side. The OpenRouter key never comes back to the window: only whether one is saved.
+
+import { invoke } from "@tauri-apps/api/core";
+
+export interface AiState {
+  has_key: boolean;
+  agent_model: string | null;
+  whisper_model: string | null;
+}
+
+export interface AiModel {
+  id: string;
+  name: string;
+  context_length: number | null;
+  /** Whether the model can call tools, which the chat needs. */
+  tools: boolean;
+  input: string[];
+  output: string[];
+  /** USD per token, as OpenRouter sends them. */
+  prompt_price: string;
+  completion_price: string;
+}
+
+/** A message in OpenAI chat format, as OpenRouter takes and returns them. */
+export interface ChatMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content?: string | null;
+  tool_calls?: { id: string; type: string; function: { name: string; arguments: string } }[];
+  tool_call_id?: string;
+}
+
+export interface ChatTurn {
+  /** The model's messages and tool results from this turn, in order. */
+  messages: ChatMessage[];
+  /** Each tool call the model made, and whether it worked. */
+  calls: { name: string; ok: boolean }[];
+}
+
+export const aiState = () => invoke<AiState>("ai_state");
+export const aiSetKey = (key: string) => invoke<void>("ai_set_key", { key });
+export const aiClearKey = () => invoke<void>("ai_clear_key");
+export const aiSetModel = (role: "agent" | "whisper", model: string | null) => invoke<void>("ai_set_model", { role, model });
+export const aiModels = () => invoke<{ models: AiModel[] }>("ai_models");
+export const aiChat = (messages: ChatMessage[]) => invoke<ChatTurn>("ai_chat", { messages });
+
+/** Prices as dollars per million tokens, for the picker. */
+export const perMillion = (perToken: string) => {
+  const value = Number(perToken) * 1_000_000;
+  return Number.isFinite(value) ? `$${value.toFixed(value < 1 ? 3 : 2)} per 1M tokens` : "price unknown";
+};

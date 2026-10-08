@@ -1,6 +1,6 @@
 //! Runs the FFmpeg commands of an export [`Plan`], reporting progress and stopping when asked.
 
-use crate::analysis::ffmpeg_command;
+use crate::analysis::{ffmpeg_command, INSTALL_HINT};
 use std::path::Path;
 use crate::export::Plan;
 use std::io::{BufRead, BufReader, Read};
@@ -17,7 +17,7 @@ fn run(args: &[String], cancel: &AtomicBool, frame: &mut dyn FnMut(i64)) -> Resu
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("could not run FFmpeg ({e}); install it (winget install Gyan.FFmpeg) or point SNN_FFMPEG at ffmpeg.exe"))?;
+        .map_err(|e| format!("could not run FFmpeg ({e}); install it ({INSTALL_HINT}) or point SNN_FFMPEG at ffmpeg.exe"))?;
     // The log is read on its own thread, or a full pipe would stall FFmpeg.
     let mut log = child.stderr.take().expect("piped");
     let errors = std::thread::spawn(move || {
