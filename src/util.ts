@@ -60,6 +60,25 @@ export function trackHeight(t: Track, layout: TrackLayout): number {
 
 const AUDIO_CLASSES = ["k-voice", "k-music", "k-sfx"];
 
+/**
+ * The ids plus every clip linked to one of them. A video and the audio clip taken from it are linked while they
+ * still start and end together, so they select, move, copy and delete as one.
+ */
+export function linkedIds(clips: Clip[], ids: string[]): string[] {
+  const out = new Set(ids);
+  for (const id of ids) {
+    const c = clips.find((x) => x.id === id);
+    if (!c?.media) continue;
+    for (const o of clips) {
+      const sound = (k: Clip["kind"]) => k === "video" || k === "audio";
+      if (o.id !== c.id && o.media === c.media && o.start === c.start && o.duration === c.duration && o.kind !== c.kind && sound(o.kind) && sound(c.kind)) {
+        out.add(o.id);
+      }
+    }
+  }
+  return [...out];
+}
+
 export function clipClass(c: Clip, tracks: Track[]): string {
   if (c.kind === "caption") return "k-cap";
   if (c.kind === "graphic") return "k-gfx";

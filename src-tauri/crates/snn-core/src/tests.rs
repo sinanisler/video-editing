@@ -172,7 +172,8 @@ fn media_clips_stay_inside_their_source() {
     assert!(e.execute("user", trim).unwrap_err().contains("past the end"));
     let audio = cmd(json!({"tool": "timeline.add_clip", "args": {"track": "A1", "start": 0, "duration": 10,
         "name": "run", "kind": "audio", "media": id}}));
-    assert!(e.execute("user", audio).unwrap_err().contains("cannot back"));
+    // This file was imported without a sound track, so it cannot back an audio clip.
+    assert!(e.execute("user", audio).unwrap_err().contains("no sound track"));
     let remove = cmd(json!({"tool": "media.remove", "args": {"media": id}}));
     assert!(e.execute("user", remove).unwrap_err().contains("still use"));
 }

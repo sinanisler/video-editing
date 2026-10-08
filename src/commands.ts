@@ -2,7 +2,7 @@ import { confirm, open, save } from "@tauri-apps/plugin-dialog";
 import { importPaths, MEDIA_EXTENSIONS } from "./media";
 import { core, exec, execBatch, openProject, project, redo, saveProject, seek, setPlaying, toast, ui, undo } from "./store";
 import type { Clip } from "./types";
-import { clamp, clipEnd, fpsOf, MAX_PPS, MIN_PPS, timelineFrames } from "./util";
+import { clamp, clipEnd, fpsOf, linkedIds, MAX_PPS, MIN_PPS, timelineFrames } from "./util";
 
 export interface EditorCommand {
   id: string;
@@ -28,7 +28,10 @@ const fps = () => {
 const frame = () => ui.get().frame;
 const allClips = (): Clip[] => project()?.sequence.clips ?? [];
 /** The selected clips that still exist. */
-const selected = (): Clip[] => allClips().filter((c) => ui.get().selection.includes(c.id));
+const selected = (): Clip[] => {
+  const ids = linkedIds(allClips(), ui.get().selection);
+  return allClips().filter((c) => ids.includes(c.id));
+};
 
 function editPoints(): number[] {
   return [...new Set(allClips().flatMap((c) => [c.start, clipEnd(c)]))].sort((a, b) => a - b);

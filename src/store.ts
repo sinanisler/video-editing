@@ -81,6 +81,8 @@ export const ui = createStore({
   rightW: 370,
   /** Colour stripe for a track, by track id. */
   trackColors: {} as Record<string, string>,
+  /** Filmstrip frames of each video, by media id: where they are, or pending or failed. */
+  filmstrips: {} as Record<string, { dir: string; count: number; interval: number } | "pending" | "failed">,
   /** Colour stripe for a clip, by clip id. Shown on the clip; view state only. */
   clipColors: {} as Record<string, string>,
   /** The track whose name is being edited. */

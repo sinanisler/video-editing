@@ -2,9 +2,41 @@ import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { runCommand, splitAt, timelineApi } from "../commands";
 import { core, exec, seek, toast, ui } from "../store";
 import type { Clip, Sequence } from "../types";
-import { clamp, clipClass, clipEnd, fits, fpsOf, MAX_PPS, MIN_PPS, mmss, timecode, timelineFrames, trackHeight } from "../util";
+import { clamp, clipClass, clipEnd, fits, fpsOf, linkedIds, MAX_PPS, MIN_PPS, mmss, timecode, timelineFrames, trackHeight } from "../util";
 import { openTrackMenu, Splitter, SPLITTER_PX, TrackHead } from "./Tracks";
 import { openClipMenu } from "./ClipMenu";
+import { filmstripKey, filmstripSize, frameUrl, requestFilmstrip } from "../filmstrip";
+import type { MediaItem } from "../types";
+
+/** Small frames along a video clip, one per tile, so the picture shows what is where on the timeline. */
+function Filmstrip({ c, m, ppf, fps, lane }: { c: Clip; m: MediaItem; ppf: number; fps: number; lane: number }) {
+  // Ask for frames sized for this track on screen, counting the screen's pixel density.
+  const size = filmstripSize(lane * (window.devicePixelRatio || 1));
+  const k = filmstripKey(m.id, size);
+  const strip = ui.use((s) => s.filmstrips[k]);
+  useEffect(() => requestFilmstrip(m, size), [m, size]);
+  if (typeof strip !== "object") return null;
+  // Tiles sit on the timeline at the time their frame shows. A tile is never narrower than the picture is wide, so
+  // frames are never squeezed: zoomed in, each half second gets a tile; zoomed out, several frames share one.
+  const pixelsPerSecond = ppf * fps;
+  const minTile = Math.max(8, lane * ((m.width || 16) / (m.height || 9)));
+  const steps = Math.max(1, Math.ceil(minTile / (strip.interval * pixelsPerSecond)));
+  const span = steps * strip.interval;
+  const tiles = Math.ceil(c.duration / fps / span);
+  return (
+    <div className="filmstrip">
+      {Array.from({ length: tiles }, (_, i) => (
+        <img
+          key={i}
+          src={frameUrl(strip, c.source_in / fps + i * span)}
+          style={{ left: i * span * pixelsPerSecond, width: span * pixelsPerSecond }}
+          draggable={false}
+          alt=""
+        />
+      ))}
+    </div>
+  );
+}
 
 const SNAP_PX = 8;
 const DRAG_PX = 4;
@@ -361,7 +393,7 @@ export function Timeline() {
     }
     const mode = target.classList.contains("hl") ? "trimL" : target.classList.contains("hr") ? "trimR" : "move";
     const keepGroup = mode === "move" && selection.includes(c.id) && selection.length > 1;
-    const ids = keepGroup ? selection : [c.id];
+    const ids = linkedIds(seq.clips, keepGroup ? selection : [c.id]);
     if (!keepGroup) ui.set({ selection: ids, rightTab: "inspector" });
     const locked = (id: string) => seq.tracks.find((t) => t.id === id)?.locked;
     if (locked(c.track)) return toast(`Track ${c.track} is locked`);
@@ -501,6 +533,10 @@ export function Timeline() {
                           data-tip={byAgent ? `${c.name} · last changed by ${c.last_actor}` : c.name}
                           onContextMenu={(e) => openClipMenu(e, c)}
                         >
+                          {c.kind === "video" && c.media && (() => {
+                            const m = p.media.find((x) => x.id === c.media);
+                            return m ? <Filmstrip c={c} m={m} ppf={ppf} fps={fps} lane={trackHeight(t, layout) - 4} /> : null;
+                          })()}
                           {c.transition_in && <span className="tr" data-tip={c.transition_in.name} />}
                           <span className="h hl" data-tip="Drag to trim the start of the clip" />
                           <span className="nm" style={c.transition_in ? { paddingLeft: 16 } : undefined}>

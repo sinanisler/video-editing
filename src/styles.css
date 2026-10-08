@@ -272,7 +272,7 @@ button.wide { width: 100%; padding: 7px; margin-bottom: 10px; }
 #status .link:hover { color: var(--text); }
 
 /* Hover tips: one box for the whole window, placed by Tooltip.tsx. */
-.tip { position: fixed; z-index: 100; transform: translateX(-50%); max-width: 340px; background: #0b0c10; border: 1px solid var(--line); border-radius: 5px; padding: 6px 9px; font-size: 14px; line-height: 1.45; color: var(--text); white-space: pre-line; text-align: left; box-shadow: 0 8px 24px #000c; pointer-events: none; }
+.tip { position: fixed; z-index: 100; transform: translateX(-50%); width: max-content; max-width: 340px; background: #0b0c10; border: 1px solid var(--line); border-radius: 5px; padding: 6px 9px; font-size: 14px; line-height: 1.45; color: var(--text); white-space: pre-line; text-align: left; box-shadow: 0 8px 24px #000c; pointer-events: none; }
 .tip.above { transform: translate(-50%, -100%); }
 .tip b { color: var(--accent); font-weight: 600; }
 
@@ -334,3 +334,7 @@ button.wide { width: 100%; padding: 7px; margin-bottom: 10px; }
 .pgrip.v { top: 0; bottom: 0; width: 6px; cursor: ew-resize; }
 .pgrip.h { top: -3px; left: 0; right: 0; height: 6px; cursor: ns-resize; }
 .pgrip:hover { background: #f5b83d55; }
+
+/* Filmstrip: frames drawn behind a video clip's name. */
+.filmstrip { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.filmstrip img { position: absolute; top: 0; height: 100%; object-fit: cover; opacity: .9; }
