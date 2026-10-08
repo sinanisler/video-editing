@@ -102,6 +102,109 @@ fn build_filmstrip(app: &AppHandle, path: &str, height: u32, interval: f64) -> R
     Ok(Filmstrip { dir: dir.to_string_lossy().into_owned(), count, interval })
 }
 
+/// Where a file's waveform is, and how it is laid out: 8-bit min and max pairs, one pair per `block` samples.
+#[derive(Clone, serde::Serialize)]
+struct Waveform {
+    file: String,
+    blocks: usize,
+    rate: u32,
+    block: u32,
+}
+
+const WAVE_RATE: u32 = 48_000;
+const WAVE_BLOCK: usize = 256;
+
+/// Decodes a file's sound once, mono at 48 kHz, and keeps the lowest and highest sample of every block of 256.
+/// The sound is streamed through FFmpeg, so memory stays small however long the file is. Cached like the filmstrip.
+#[tauri::command]
+async fn waveform(app: AppHandle, path: String) -> Result<Waveform, String> {
+    tauri::async_runtime::spawn_blocking(move || build_waveform(&app, &path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn build_waveform(app: &AppHandle, path: &str) -> Result<Waveform, String> {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    use std::io::Read;
+    use std::process::Stdio;
+    let mut hasher = DefaultHasher::new();
+    path.hash(&mut hasher);
+    let dir = app.path().app_cache_dir().map_err(|e| e.to_string())?.join("waveforms");
+    let file = dir.join(format!("{:016x}.bin", hasher.finish()));
+    let info = |len: u64| Waveform { file: file.to_string_lossy().into_owned(), blocks: (len / 2) as usize, rate: WAVE_RATE, block: WAVE_BLOCK as u32 };
+    if let Ok(meta) = std::fs::metadata(&file) {
+        app.asset_protocol_scope().allow_directory(&dir, false).map_err(|e| e.to_string())?;
+        return Ok(info(meta.len()));
+    }
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+
+    let mut cmd = std::process::Command::new(snn_core::ffmpeg_path());
+    cmd.args(["-hide_banner", "-nostats", "-nostdin", "-v", "error", "-i"])
+        .arg(path)
+        .args(["-vn", "-ac", "1", "-ar"])
+        .arg(WAVE_RATE.to_string())
+        .args(["-f", "s16le", "-"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // no console window over the editor
+    }
+    let mut child = cmd.spawn().map_err(|e| format!("could not run FFmpeg: {e}"))?;
+    let mut stdout = child.stdout.take().ok_or("no sound output from FFmpeg")?;
+
+    let mut out: Vec<u8> = Vec::new();
+    let (mut lo, mut hi, mut in_block) = (i16::MAX, i16::MIN, 0usize);
+    let mut odd: Option<u8> = None;
+    let to_i8 = |v: i16| (v as i32 / 256).clamp(-128, 127) as i8 as u8;
+    let mut buf = vec![0u8; 1 << 16];
+    loop {
+        let n = stdout.read(&mut buf).map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+        for &byte in &buf[..n] {
+            let Some(low) = odd.take() else {
+                odd = Some(byte);
+                continue;
+            };
+            let sample = i16::from_le_bytes([low, byte]);
+            lo = lo.min(sample);
+            hi = hi.max(sample);
+            in_block += 1;
+            if in_block == WAVE_BLOCK {
+                out.push(to_i8(lo));
+                out.push(to_i8(hi));
+                (lo, hi, in_block) = (i16::MAX, i16::MIN, 0);
+            }
+        }
+    }
+    if in_block > 0 {
+        out.push(to_i8(lo));
+        out.push(to_i8(hi));
+    }
+    let status = child.wait().map_err(|e| e.to_string())?;
+    if !status.success() {
+        let mut err = String::new();
+        if let Some(mut e) = child.stderr.take() {
+            let _ = e.read_to_string(&mut err);
+        }
+        return Err(format!("could not read the sound: {}", err.lines().last().unwrap_or("unknown error")));
+    }
+    if out.is_empty() {
+        return Err("it has no sound".into());
+    }
+    // Write under a temporary name first, so a half-written file is never read as finished.
+    let tmp = file.with_extension("tmp");
+    std::fs::write(&tmp, &out).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &file).map_err(|e| e.to_string())?;
+    app.asset_protocol_scope().allow_directory(&dir, false).map_err(|e| e.to_string())?;
+    Ok(info(out.len() as u64))
+}
+
 /// Whether an MP4, MOV or M4V file has a sound track. Other formats return null, which means not known.
 #[tauri::command]
 fn probe_audio(path: String) -> Option<bool> {
@@ -212,6 +315,7 @@ pub fn run() {
             allow_asset,
             probe_audio,
             filmstrip,
+            waveform,
             execute,
             execute_batch,
             undo,

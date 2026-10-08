@@ -339,3 +339,7 @@ button.wide { width: 100%; padding: 7px; margin-bottom: 10px; }
 .filmstrip { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
 .filmstrip img { position: absolute; top: 0; height: 100%; object-fit: cover; opacity: .9; }
 
+
+/* Audio waveform, drawn inside an audio clip behind its name. */
+.wave { position: absolute; top: 0; z-index: 0; pointer-events: none; overflow: visible; }
+.wave path { fill: #d8f5e4aa; stroke: none; }

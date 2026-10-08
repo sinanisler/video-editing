@@ -6,6 +6,7 @@ import { clamp, clipClass, clipEnd, fits, fpsOf, linkedIds, MAX_PPS, MIN_PPS, mm
 import { openTrackMenu, Splitter, SPLITTER_PX, TrackHead } from "./Tracks";
 import { openClipMenu } from "./ClipMenu";
 import { filmstripKey, filmstripSize, frameUrl, requestFilmstrip } from "../filmstrip";
+import { Waveform } from "./Waveform";
 import type { MediaItem } from "../types";
 
 /** Narrowest a frame tile can be and still show every frame when zoomed in. */
@@ -252,6 +253,11 @@ export function Timeline() {
 
   useEffect(() => {
     const el = scroller.current!;
+    // Waveforms draw only the part on screen, so they need to know where the view is.
+    const syncView = () => ui.set({ scrollX: el.scrollLeft, viewW: el.clientWidth });
+    syncView();
+    el.addEventListener("scroll", syncView);
+    window.addEventListener("resize", syncView);
     const onWheel = (e: WheelEvent) => {
       if (e.ctrlKey || e.altKey) {
         e.preventDefault();
@@ -267,7 +273,11 @@ export function Timeline() {
       }
     };
     el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("scroll", syncView);
+      window.removeEventListener("resize", syncView);
+    };
   }, []);
 
   useEffect(() => {
@@ -542,6 +552,10 @@ export function Timeline() {
                           {c.kind === "video" && c.media && (() => {
                             const m = p.media.find((x) => x.id === c.media);
                             return m ? <Filmstrip c={c} m={m} ppf={ppf} fps={fps} lane={trackHeight(t, layout) - 4} /> : null;
+                          })()}
+                          {c.kind === "audio" && c.media && (() => {
+                            const m = p.media.find((x) => x.id === c.media);
+                            return m ? <Waveform c={c} m={m} ppf={ppf} fps={fps} lane={trackHeight(t, layout) - 4} /> : null;
                           })()}
                           {c.transition_in && <span className="tr" data-tip={c.transition_in.name} />}
                           <span className="h hl" data-tip="Drag to trim the start of the clip" />
