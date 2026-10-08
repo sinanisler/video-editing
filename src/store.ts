@@ -81,6 +81,8 @@ export const ui = createStore({
   rightW: 370,
   /** Colour stripe for a track, by track id. */
   trackColors: {} as Record<string, string>,
+  /** Colour stripe for a clip, by clip id. Shown on the clip; view state only. */
+  clipColors: {} as Record<string, string>,
   /** The track whose name is being edited. */
   renaming: null as string | null,
   /** An open right-click menu. */

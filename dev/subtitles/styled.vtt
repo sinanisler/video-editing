@@ -1,0 +1,21 @@
+WEBVTT
+
+STYLE
+::cue(.loud) {
+  color: yellow;
+}
+
+NOTE Styling needs a player that supports WebVTT cue styling.
+
+intro
+00:00:01.000 --> 00:00:03.000 line:90% align:center
+<c.loud>Subscribe</c> now
+
+00:00:03.500 --> 00:00:05.000 position:20% align:start
+<v Sinan>Left side speaker</v>
+
+00:00:05.500 --> 00:00:07.000
+Short form, no hours: 00:05 onward
+
+00:00:07.500 --> 00:00:09.000
+Hours are optional but allowed.

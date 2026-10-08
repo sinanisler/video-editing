@@ -4,6 +4,7 @@ import type { MenuItem } from "../store";
 import type { Sequence, Track } from "../types";
 import { clamp, COLLAPSED_PX, TRACK_MAX_PX, TRACK_MIN_PX } from "../util";
 import { openMenu } from "./ContextMenu";
+import { exportSubtitles, importSubtitles, pickSubtitleFile } from "../captions";
 
 /** Colours a track can be given. A track's colour shows as a stripe on its header and on its lane. */
 export const TRACK_COLOURS = ["#3566c9", "#2b9167", "#1d8598", "#7556cf", "#b84a88", "#bf6d27", "#a8892a", "#878d9c"];
@@ -155,6 +156,14 @@ export function trackMenu(t: Track, seq: Sequence): MenuItem[] {
       },
     },
     "sep",
+    ...(t.kind === "caption"
+      ? ([
+          { label: "Import subtitles…", action: () => pickSubtitleFile().then((file) => file && importSubtitles(file)) },
+          { label: "Export as SRT", action: () => exportSubtitles("srt") },
+          { label: "Export as WebVTT", action: () => exportSubtitles("vtt") },
+          "sep",
+        ] as MenuItem[])
+      : []),
     { label: "Add video track", action: () => exec("timeline.add_track", { kind: "video" }) },
     { label: "Add audio track", action: () => exec("timeline.add_track", { kind: "audio" }) },
     { label: "Remove track", disabled: clipIds.length > 0, danger: true, action: () => exec("timeline.remove_track", { track: t.id }) },

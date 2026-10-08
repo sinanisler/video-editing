@@ -1,0 +1,19 @@
+1
+00:00:00,500 --> 00:00:02,000
+<font color="#ffcc00">Yellow line</font>
+
+2
+00:00:02,000 --> 00:00:04,000
+<b>Bold</b> and <u>underlined</u>
+
+3
+00:00:04,000 --> 00:00:04,000
+Zero length, dropped
+
+4
+00:00:05,000 --> 00:00:04,000
+Ends before it starts, dropped
+
+5
+00:00:06,000 --> 00:00:07,000
+

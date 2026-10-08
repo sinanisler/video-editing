@@ -4,6 +4,7 @@ import { core, exec, seek, toast, ui } from "../store";
 import type { Clip, Sequence } from "../types";
 import { clamp, clipClass, clipEnd, fits, fpsOf, MAX_PPS, MIN_PPS, mmss, timecode, timelineFrames, trackHeight } from "../util";
 import { openTrackMenu, Splitter, SPLITTER_PX, TrackHead } from "./Tracks";
+import { openClipMenu } from "./ClipMenu";
 
 const SNAP_PX = 8;
 const DRAG_PX = 4;
@@ -145,6 +146,7 @@ export function Timeline() {
   const heights = ui.use((s) => s.trackHeights);
   const collapsed = ui.use((s) => s.collapsed);
   const colours = ui.use((s) => s.trackColors);
+  const clipColours = ui.use((s) => s.clipColors);
   const targetId = ui.use((s) => s.targetTrack);
   const layout = { videoH, audioH, heights, collapsed };
   const headsW = ui.use((s) => s.headsW);
@@ -490,8 +492,14 @@ export function Timeline() {
                           key={c.id}
                           data-id={c.id}
                           className={`clip ${clipClass(c, seq.tracks)} ${selection.includes(c.id) ? "sel" : ""}`}
-                          style={{ left: c.start * ppf, width: Math.max(3, c.duration * ppf - 1), background: colours[c.track] }}
+                          style={{
+                            left: c.start * ppf,
+                            width: Math.max(3, c.duration * ppf - 1),
+                            background: colours[c.track],
+                            boxShadow: clipColours[c.id] ? `inset 5px 0 0 ${clipColours[c.id]}` : undefined,
+                          }}
                           data-tip={byAgent ? `${c.name} · last changed by ${c.last_actor}` : c.name}
+                          onContextMenu={(e) => openClipMenu(e, c)}
                         >
                           {c.transition_in && <span className="tr" data-tip={c.transition_in.name} />}
                           <span className="h hl" data-tip="Drag to trim the start of the clip" />

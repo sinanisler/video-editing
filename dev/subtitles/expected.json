@@ -1,0 +1,5 @@
+{
+  "basic.srt": { "cues": 4, "first": { "start": 1, "end": 3.5, "text": "Welcome back to the channel." }, "lastStart": 62.25 },
+  "tags.srt": { "cues": 2, "texts": ["Yellow line", "Bold and underlined"] },
+  "styled.vtt": { "cues": 4, "texts": ["Subscribe now", "Left side speaker", "Short form, no hours: 00:05 onward", "Hours are optional but allowed."] }
+}

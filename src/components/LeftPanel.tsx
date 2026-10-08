@@ -4,6 +4,12 @@ import { core, exec, execBatch, project, toast, ui } from "../store";
 import type { MediaItem } from "../types";
 import { clipEnd, fpsOf, timecode } from "../util";
 import { Tabs } from "./Tabs";
+import { importSubtitles, pickSubtitleFile } from "../captions";
+
+async function chooseSubtitles() {
+  const file = await pickSubtitleFile();
+  if (file) await importSubtitles(file);
+}
 
 /** What the import dialog accepts. Shown in the Import tooltip and under the media list. */
 const FORMATS = [
@@ -11,6 +17,7 @@ const FORMATS = [
   ["Audio", "MP3, WAV, M4A, AAC, OGG, FLAC"],
   ["Images", "PNG, JPG, WebP, GIF"],
 ] as const;
+const SUBTITLE_TIP = "Import an SRT or WebVTT subtitle file as captions on the captions track, at the times written in the file.";
 const IMPORT_TIP = `Import video, audio and image files.\n${FORMATS.map(([kind, list]) => `${kind}: ${list}`).join("\n")}`;
 
 export const TEXT_TEMPLATES = [
@@ -90,7 +97,12 @@ function startMediaDrag(e: React.PointerEvent, m: MediaItem) {
 function MediaPool() {
   const p = core.use((s) => s.state)!.project;
   const fps = fpsOf(p);
-  const importButton = <button className="primary wide" data-tip={IMPORT_TIP} onClick={importMedia}>Import files…</button>;
+  const importButton = (
+    <>
+      <button className="primary wide" data-tip={IMPORT_TIP} onClick={importMedia}>Import files…</button>
+      <button className="wide" style={{ marginTop: 6 }} data-tip={SUBTITLE_TIP} onClick={chooseSubtitles}>Import subtitles…</button>
+    </>
+  );
   return (
     <>
       {p.media.length === 0 ? (
