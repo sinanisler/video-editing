@@ -42,6 +42,11 @@ export function hue(s: string): number {
 
 export const COLLAPSED_PX = 18;
 export const TRACK_MIN_PX = 24;
+/**
+ * Lanes shorter than this show only their clips' colour. Frames and waveforms at this height are noise, and they
+ * are not even made, which saves the work of making them.
+ */
+export const THIN_LANE_PX = 30;
 export const TRACK_MAX_PX = 120;
 
 /** How tall each track is on screen. Kept in the view state, not the project. */
@@ -76,15 +81,17 @@ const KIND_ORDER: Record<MediaItem["kind"], number> = { video: 0, audio: 1, imag
 
 /**
  * The media in the order the pool shows it. `desc` reverses that: for import order, newest first.
- * Ties in length or kind fall back to name, so the order never depends on the import sequence alone.
+ * `uses` counts the timeline clips each item backs, for the clips order. Ties fall back to name, so the order
+ * never depends on the import sequence alone.
  */
-export function sortMedia(media: MediaItem[], sort: MediaSort, desc: boolean): MediaItem[] {
+export function sortMedia(media: MediaItem[], sort: MediaSort, desc: boolean, uses: Map<string, number> = new Map()): MediaItem[] {
   const imported = new Map(media.map((m, i) => [m.id, i]));
   const byName = (a: MediaItem, b: MediaItem) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
   const cmp = (a: MediaItem, b: MediaItem): number => {
     if (sort === "name") return byName(a, b);
     if (sort === "length") return a.duration - b.duration || byName(a, b);
     if (sort === "type") return KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || byName(a, b);
+    if (sort === "clips") return (uses.get(a.id) ?? 0) - (uses.get(b.id) ?? 0) || byName(a, b);
     return imported.get(a.id)! - imported.get(b.id)!;
   };
   const sorted = [...media].sort(cmp);

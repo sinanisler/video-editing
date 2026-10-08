@@ -54,7 +54,7 @@ export interface Marker {
 
 export type MediaKind = "video" | "audio" | "image";
 /** How the media pool is ordered: the order files were imported in, by name, by length, or by kind. */
-export type MediaSort = "imported" | "name" | "length" | "type";
+export type MediaSort = "imported" | "name" | "length" | "type" | "clips";
 export type MediaView = "grid" | "list";
 
 export interface MediaItem {

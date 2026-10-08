@@ -3,8 +3,8 @@ import { runCommand, selectedUnder, splitAt, splitSelectedAt, timelineApi } from
 import { core, exec, seek, toast, ui } from "../store";
 import type { MenuItem } from "../store";
 import { openMenu } from "./ContextMenu";
-import type { Clip, Sequence } from "../types";
-import { clamp, clipClass, clipEnd, fits, fpsOf, linkedIds, MAX_PPS, MIN_PPS, mmss, timecode, timelineFrames, trackHeight } from "../util";
+import type { Clip, Sequence, Track } from "../types";
+import { clamp, clipClass, clipEnd, fits, fpsOf, linkedIds, MAX_PPS, MIN_PPS, mmss, THIN_LANE_PX, timecode, timelineFrames, trackHeight } from "../util";
 import { openTrackMenu, Splitter, SPLITTER_PX, TrackHead } from "./Tracks";
 import { openClipMenu } from "./ClipMenu";
 import { filmstripKey, filmstripSize, frameUrl, requestFilmstrip } from "../filmstrip";
@@ -229,6 +229,8 @@ export function Timeline() {
   const clipColours = ui.use((s) => s.clipColors);
   const targetId = ui.use((s) => s.targetTrack);
   const layout = { videoH, audioH, heights, collapsed };
+  /** A lane too short for pictures or waveforms: its clips show only their colour. */
+  const thin = (t: Track) => trackHeight(t, layout) < THIN_LANE_PX;
   const headsW = ui.use((s) => s.headsW);
 
   const p = state.project;
@@ -576,7 +578,7 @@ export function Timeline() {
                 {i === splitIndex && <div className="splitpad" style={{ height: SPLITTER_PX }}><Splitter tracks={seq.tracks} /></div>}
                 <div
                   data-track={t.id}
-                  className={`lane ${t.locked ? "locked" : ""} ${t.muted || t.hidden ? "dim" : ""} ${layout.collapsed[t.id] ? "mini" : ""} ${targetId === t.id ? "target" : ""}`}
+                  className={`lane ${t.locked ? "locked" : ""} ${t.muted || t.hidden ? "dim" : ""} ${layout.collapsed[t.id] ? "mini" : ""} ${thin(t) ? "thin" : ""} ${targetId === t.id ? "target" : ""}`}
                   style={{ height: trackHeight(t, layout), boxShadow: colours[t.id] ? `inset 3px 0 0 ${colours[t.id]}` : undefined }}
                   onContextMenu={(e) => openTrackMenu(e, t, seq)}
                 >
@@ -598,11 +600,11 @@ export function Timeline() {
                           data-tip={byAgent ? `${c.name} · last changed by ${c.last_actor}` : c.name}
                           onContextMenu={(e) => openClipMenu(e, c)}
                         >
-                          {c.kind === "video" && c.media && (() => {
+                          {!thin(t) && c.kind === "video" && c.media && (() => {
                             const m = p.media.find((x) => x.id === c.media);
                             return m ? <Filmstrip c={c} m={m} ppf={ppf} fps={fps} lane={trackHeight(t, layout) - 4} /> : null;
                           })()}
-                          {c.kind === "audio" && c.media && (() => {
+                          {!thin(t) && c.kind === "audio" && c.media && (() => {
                             const m = p.media.find((x) => x.id === c.media);
                             return m ? <Waveform c={c} m={m} ppf={ppf} fps={fps} lane={trackHeight(t, layout) - 4} /> : null;
                           })()}

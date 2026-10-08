@@ -3,7 +3,7 @@ import { addMediaClip, addMediaClips, assetUrl } from "../media";
 import { core, exec, execBatch, project, toast, ui } from "../store";
 import type { MediaItem, MediaSort, Project } from "../types";
 import type { MenuItem } from "../store";
-import { clipEnd, fpsOf, pickMedia, sortMedia, timecode } from "../util";
+import { clipEnd, fpsOf, mmss, pickMedia, sortMedia, timecode } from "../util";
 import { openMenu } from "./ContextMenu";
 import { Tabs } from "./Tabs";
 import { importSubtitles, pickSubtitleFile } from "../captions";
@@ -84,7 +84,7 @@ function targetsOf(m: MediaItem): MediaItem[] {
   const p = project();
   const s = ui.get();
   if (!p || !s.mediaSel.includes(m.id)) return [m];
-  return sortMedia(p.media, s.mediaSort, s.mediaDesc).filter((x) => s.mediaSel.includes(x.id));
+  return sortMedia(p.media, s.mediaSort, s.mediaDesc, usesOf(p)).filter((x) => s.mediaSel.includes(x.id));
 }
 
 /**
@@ -234,53 +234,127 @@ function openMediaMenu(e: React.MouseEvent, m: MediaItem) {
   openMenu(e.clientX, e.clientY, mediaMenu(targetsOf(m), p));
 }
 
-/** Sort orders the bar offers. The button beside the menu says what each direction means. */
+/** Sort orders. The menu under the bar lists them; the direction icon reverses them. */
 const SORTS: { id: MediaSort; label: string; ways: [string, string] }[] = [
   { id: "imported", label: "Import order", ways: ["Oldest first", "Newest first"] },
   { id: "name", label: "Name", ways: ["A to Z", "Z to A"] },
-  { id: "length", label: "Length", ways: ["Shortest first", "Longest first"] },
   { id: "type", label: "Type", ways: ["Video first", "Images first"] },
+  { id: "length", label: "Length", ways: ["Shortest first", "Longest first"] },
+  { id: "clips", label: "Clips", ways: ["Unused first", "Most used first"] },
 ];
 
-/** The bar at the top of the media panel: layout, size, order and how many items are selected. */
+/** The columns of the list view's table. Clicking a head sorts by it; clicking the same head again reverses it. */
+const COLUMNS: { id: MediaSort; head: string; tip: string }[] = [
+  { id: "imported", head: "#", tip: "Import order" },
+  { id: "name", head: "Name", tip: "Name" },
+  { id: "type", head: "Type", tip: "Type: video, then audio, then images" },
+  { id: "length", head: "Length", tip: "Length" },
+  { id: "clips", head: "Clips", tip: "How many timeline clips use each item" },
+];
+
+/** Line icons on a 24 grid, drawn in the current text colour. */
+const GLYPHS = {
+  grid: (
+    <>
+      <rect x="3" y="3" width="7" height="7" />
+      <rect x="14" y="3" width="7" height="7" />
+      <rect x="3" y="14" width="7" height="7" />
+      <rect x="14" y="14" width="7" height="7" />
+    </>
+  ),
+  list: (
+    <>
+      <path d="M9 6h12M9 12h12M9 18h12" />
+      <path d="M4 6h.01M4 12h.01M4 18h.01" />
+    </>
+  ),
+  sort: <path d="M4 6h16M7 12h10M10 18h4" />,
+  up: <path d="M12 19V5M5 12l7-7 7 7" />,
+  down: <path d="M12 5v14M19 12l-7 7-7-7" />,
+  tiles: (
+    <>
+      <rect x="3" y="3" width="8" height="8" />
+      <rect x="13" y="13" width="8" height="8" />
+    </>
+  ),
+};
+
+function Glyph({ name, small }: { name: keyof typeof GLYPHS; small?: boolean }) {
+  return (
+    <svg className={`glyph ${small ? "sm" : ""}`} viewBox="0 0 24 24" aria-hidden="true">
+      {GLYPHS[name]}
+    </svg>
+  );
+}
+
+/** A column head or a sort choice: the order already in use reverses; a new order starts ascending. */
+function sortBy(id: MediaSort) {
+  const s = ui.get();
+  if (s.mediaSort === id) ui.set({ mediaDesc: !s.mediaDesc });
+  else ui.set({ mediaSort: id, mediaDesc: false });
+}
+
+/** The list of sort orders, opened under the bar's sort button. The one in use is ticked. */
+function openSortMenu(e: React.MouseEvent<HTMLElement>) {
+  const r = e.currentTarget.getBoundingClientRect();
+  const sort = ui.get().mediaSort;
+  openMenu(
+    r.left,
+    r.bottom + 4,
+    SORTS.map((s) => ({ label: s.label, checked: s.id === sort, action: () => ui.set({ mediaSort: s.id }) })),
+  );
+}
+
+/** The bar at the top of the media panel. Icons only; each one says what it does when hovered. */
 function MediaBar({ count, selected }: { count: number; selected: number }) {
   const view = ui.use((s) => s.mediaView);
   const tile = ui.use((s) => s.mediaTile);
   const sort = ui.use((s) => s.mediaSort);
   const desc = ui.use((s) => s.mediaDesc);
-  const way = SORTS.find((s) => s.id === sort)!.ways[desc ? 1 : 0];
+  const order = SORTS.find((s) => s.id === sort)!;
   return (
     <div className="mediabar">
       <div className="viewtoggle">
-        <button className={view === "grid" ? "on" : ""} data-tip="Thumbnails in a grid" onClick={() => ui.set({ mediaView: "grid" })}>▦</button>
-        <button className={view === "list" ? "on" : ""} data-tip="A list with type, length and how many clips use each item" onClick={() => ui.set({ mediaView: "list" })}>☰</button>
+        <button className={view === "grid" ? "on" : ""} aria-label="Grid" data-tip="Grid of thumbnails" onClick={() => ui.set({ mediaView: "grid" })}>
+          <Glyph name="grid" />
+        </button>
+        <button
+          className={view === "list" ? "on" : ""}
+          aria-label="List"
+          data-tip="List as a table. Click a column head to sort by it; click it again to reverse."
+          onClick={() => ui.set({ mediaView: "list" })}
+        >
+          <Glyph name="list" />
+        </button>
       </div>
-      <select value={sort} data-tip="Order the media by" onChange={(e) => ui.set({ mediaSort: e.target.value as MediaSort })}>
-        {SORTS.map((s) => (
-          <option key={s.id} value={s.id}>{s.label}</option>
-        ))}
-      </select>
-      <button data-tip="Reverse the order" onClick={() => ui.set({ mediaDesc: !desc })}>{way}</button>
+      <button className="icon" aria-label="Sort" data-tip={`Sort: ${order.label}. Click to choose another.`} onClick={openSortMenu}>
+        <Glyph name="sort" />
+      </button>
+      <button className="icon" aria-label="Direction" data-tip={`${order.ways[desc ? 1 : 0]}. Click to reverse.`} onClick={() => ui.set({ mediaDesc: !desc })}>
+        <Glyph name={desc ? "down" : "up"} />
+      </button>
       {view === "grid" && (
-        <input
-          type="range"
-          min={96}
-          max={240}
-          step={2}
-          value={tile}
-          data-tip="Thumbnail size. Drag right for bigger tiles, left for more per row."
-          onChange={(e) => ui.set({ mediaTile: +e.target.value })}
-        />
+        <span className="icontip" data-tip="Thumbnail size. Drag right for bigger tiles, left for more per row.">
+          <Glyph name="tiles" />
+          <input type="range" min={96} max={240} step={2} value={tile} aria-label="Thumbnail size" onChange={(e) => ui.set({ mediaTile: +e.target.value })} />
+        </span>
       )}
       <span className="muted">
         {count} {count === 1 ? "item" : "items"}
-        {selected > 0 && `, ${selected} selected`}
+        {selected > 0 && ` · ${selected} selected`}
       </span>
     </div>
   );
 }
 
-/** The line under each name: length or image, and the picture size. */
+/** How many timeline clips use each media item. */
+function usesOf(p: Project): Map<string, number> {
+  const uses = new Map<string, number>();
+  for (const c of p.sequence.clips) if (c.media) uses.set(c.media, (uses.get(c.media) ?? 0) + 1);
+  return uses;
+}
+
+/** The line under each name in the grid: length or image, and the picture size. */
 function details(m: MediaItem, fps: number): string {
   return `${m.kind === "image" ? "image" : timecode(m.duration, fps)}${m.width > 0 ? ` · ${m.width}×${m.height}` : ""}`;
 }
@@ -303,22 +377,61 @@ function MediaPool() {
       </div>
     );
   }
-  const items = sortMedia(p.media, sort, desc);
-  const uses = new Map<string, number>();
-  for (const c of p.sequence.clips) if (c.media) uses.set(c.media, (uses.get(c.media) ?? 0) + 1);
+  const uses = usesOf(p);
+  const items = sortMedia(p.media, sort, desc, uses);
   const chosen = items.filter((m) => sel.includes(m.id)).length;
-  const list = view === "list";
+  const number = new Map(p.media.map((m, i) => [m.id, i + 1]));
   return (
     <>
       <MediaBar count={items.length} selected={chosen} />
-      <div className={list ? "medialist" : "media"} style={list ? undefined : { gridTemplateColumns: `repeat(auto-fill, minmax(${tile}px, 1fr))` }}>
-        {items.map((m) => {
-          const n = uses.get(m.id) ?? 0;
-          return (
+      {view === "list" ? (
+        <div className="tablewrap">
+          <div className="table">
+            <div className="thead">
+              {COLUMNS.map((col) => {
+                const on = sort === col.id;
+                return (
+                  <button
+                    key={col.id}
+                    className={on ? "on" : ""}
+                    data-tip={`${col.tip}. ${on ? "Click to reverse." : "Click to sort by it."}`}
+                    onClick={() => sortBy(col.id)}
+                  >
+                    {col.head}
+                    {on && <Glyph name={desc ? "down" : "up"} small />}
+                  </button>
+                );
+              })}
+            </div>
+            {items.map((m) => (
+              <div
+                key={m.id}
+                data-mid={m.id}
+                className={`mi trow ${sel.includes(m.id) ? "sel" : ""}`}
+                data-tip={`${m.path}\n${ITEM_TIP}`}
+                onPointerDown={(e) => startMediaDrag(e, m)}
+                onDoubleClick={() => addMediaClip(m, ui.get().frame)}
+                onContextMenu={(e) => openMediaMenu(e, m)}
+              >
+                <span className="tcell">{number.get(m.id)}</span>
+                <span className="tcell name">{m.name}</span>
+                <span className="tcell">{m.kind}</span>
+                <span className="tcell">{m.kind === "image" ? "—" : mmss(m.duration / fps)}</span>
+                <span className="tcell">{uses.get(m.id) ?? 0}</span>
+                <button className="rm" data-tip="Remove from project. Clips already on the timeline stay." onClick={() => exec("media.remove", { media: m.id })}>
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="media" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${tile}px, 1fr))` }}>
+          {items.map((m) => (
             <div
               key={m.id}
               data-mid={m.id}
-              className={`mi ${list ? "row" : ""} ${sel.includes(m.id) ? "sel" : ""}`}
+              className={`mi ${sel.includes(m.id) ? "sel" : ""}`}
               data-tip={`${m.path}\n${ITEM_TIP}`}
               onPointerDown={(e) => startMediaDrag(e, m)}
               onDoubleClick={() => addMediaClip(m, ui.get().frame)}
@@ -328,14 +441,12 @@ function MediaPool() {
               <button className="rm" data-tip="Remove from project. Clips already on the timeline stay." onClick={() => exec("media.remove", { media: m.id })}>✕</button>
               <div className="info">
                 <div className="nm">{m.name}</div>
-                <div className="meta">
-                  {list ? `${m.kind === "image" ? "" : `${m.kind} · `}${details(m, fps)} · ${n} ${n === 1 ? "clip" : "clips"}` : details(m, fps)}
-                </div>
+                <div className="meta">{details(m, fps)}</div>
               </div>
             </div>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      )}
     </>
   );
 }

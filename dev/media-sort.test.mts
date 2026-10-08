@@ -32,6 +32,12 @@ describe("media order", () => {
     assert.deepEqual(ids(sortMedia(pool, "type", false)), ["m1", "m5", "m4", "m2", "m3"]);
   });
 
+  it("sorts by how many clips use each item, unused first, with the name breaking ties", () => {
+    const uses = new Map([["m4", 2], ["m1", 1]]);
+    assert.deepEqual(ids(sortMedia(pool, "clips", false, uses)), ["m2", "m5", "m3", "m1", "m4"]);
+    assert.deepEqual(ids(sortMedia(pool, "clips", true, uses)), ["m4", "m1", "m3", "m5", "m2"]);
+  });
+
   it("does not change the list it was given", () => {
     const before = ids(pool);
     sortMedia(pool, "name", true);
