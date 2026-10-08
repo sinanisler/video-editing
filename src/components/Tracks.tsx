@@ -2,7 +2,7 @@ import type React from "react";
 import { exec, ui } from "../store";
 import type { MenuItem } from "../store";
 import type { Sequence, Track } from "../types";
-import { clamp, COLLAPSED_PX, TRACK_MAX_PX, TRACK_MIN_PX } from "../util";
+import { clamp, splitDrag, TRACK_MAX_PX, TRACK_MIN_PX } from "../util";
 import { openMenu } from "./ContextMenu";
 import { exportSubtitles, importSubtitles, pickSubtitleFile } from "../captions";
 
@@ -58,34 +58,24 @@ function startResize(e: React.PointerEvent, t: Track, height: number) {
 /**
  * Drag the divider between the video and audio groups. The line follows the pointer: the video tracks above it
  * grow or shrink by the same amount, and the audio tracks below keep their size and move with it. Pulling the
- * video group below its minimum collapses it, and pulling it back out expands it again.
+ * video group below its minimum collapses it, and pulling it back out expands it again. Tracks folded by hand
+ * stay folded (see splitDrag).
  */
 function startSplit(e: React.PointerEvent, tracks: Track[]) {
   if (e.button !== 0) return;
   e.preventDefault();
   e.stopPropagation();
-  const videos = tracks.filter((t) => t.kind === "video");
-  const n = Math.max(1, videos.length);
+  const videoIds = tracks.filter((t) => t.kind === "video").map((t) => t.id);
   const start = ui.get();
-  // A group that starts collapsed resumes from its collapsed height, so the first pixels of drag expand it smoothly.
-  const base = videos.length && videos.every((t) => start.collapsed[t.id]) ? COLLAPSED_PX : clamp(start.videoH, TRACK_MIN_PX, TRACK_MAX_PX);
   const y0 = e.clientY;
   const move = (ev: PointerEvent) => {
-    // Each video track takes its share of the pointer movement, so the line moves exactly as far as the pointer.
-    const raw = base + (ev.clientY - y0) / n;
-    const collapsed = raw < TRACK_MIN_PX;
+    const r = splitDrag(start, videoIds, ev.clientY - y0);
     const s = ui.get();
-    const next = { ...s.collapsed };
-    const heights = { ...s.trackHeights };
-    for (const t of videos) {
-      next[t.id] = collapsed;
-      delete heights[t.id];
-    }
     ui.set({
-      // A collapsed group keeps its last expanded height, so pulling it back out restores that size.
-      videoH: collapsed ? s.videoH : Math.round(clamp(raw, TRACK_MIN_PX, TRACK_MAX_PX)),
-      collapsed: next,
-      trackHeights: heights,
+      // A folded group keeps its last open height, so pulling it back out restores that size.
+      videoH: r.folded ? s.videoH : r.videoH,
+      collapsed: r.collapsed,
+      trackHeights: r.trackHeights,
     });
   };
   const up = () => {

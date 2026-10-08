@@ -63,6 +63,36 @@ export function trackHeight(t: Track, layout: TrackLayout): number {
   return t.kind === "caption" ? 36 : t.kind === "audio" ? layout.audioH : layout.videoH;
 }
 
+/** The view state the divider between the video and audio groups changes. */
+export interface SplitState {
+  videoH: number;
+  collapsed: Record<string, boolean>;
+  trackHeights: Record<string, number>;
+}
+
+/**
+ * The divider's state after it has moved `dy` px from where the drag began. It moves the video tracks that are open
+ * at the start, so a track folded by hand stays folded. If every video track was folded, the divider is the group
+ * handle and pulling it out opens them all. Pulled below the minimum, the moved tracks fold together. `videoH` is
+ * the height the moved tracks take when open; the caller keeps the last open height while the group is folded.
+ */
+export function splitDrag(start: SplitState, videoIds: string[], dy: number) {
+  const open = videoIds.filter((id) => !start.collapsed[id]);
+  const wholeGroupFolded = videoIds.length > 0 && open.length === 0;
+  const moved = wholeGroupFolded ? videoIds : open;
+  // Each moved track takes its share of the pointer movement, so the line moves exactly as far as the pointer.
+  const raw = (wholeGroupFolded ? COLLAPSED_PX : clamp(start.videoH, TRACK_MIN_PX, TRACK_MAX_PX)) + dy / Math.max(1, moved.length);
+  const folded = raw < TRACK_MIN_PX;
+  const collapsed = { ...start.collapsed };
+  for (const id of videoIds) {
+    // Pulling back out restores each track's state from the start, so a track folded by hand stays folded.
+    collapsed[id] = folded || (!wholeGroupFolded && !!start.collapsed[id]);
+  }
+  const trackHeights = { ...start.trackHeights };
+  for (const id of moved) delete trackHeights[id];
+  return { folded, videoH: Math.round(clamp(raw, TRACK_MIN_PX, TRACK_MAX_PX)), collapsed, trackHeights };
+}
+
 const AUDIO_CLASSES = ["k-voice", "k-music", "k-sfx"];
 
 /**
