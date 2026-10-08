@@ -79,7 +79,7 @@ fn handle_message(ctx: &mut Ctx, msg: &Value, session: Option<&str>) -> (Option<
             ctx.sessions.insert(sid.clone(), client);
             let result = json!({
                 "protocolVersion": version,
-                "capabilities": { "tools": { "listChanged": false } },
+                "capabilities": { "tools": { "listChanged": false }, "prompts": { "listChanged": false } },
                 "serverInfo": { "name": "snn-editor", "version": env!("CARGO_PKG_VERSION") },
                 "instructions": snn_core::INSTRUCTIONS,
             });
@@ -93,6 +93,21 @@ fn handle_message(ctx: &mut Ctx, msg: &Value, session: Option<&str>) -> (Option<
                 .collect();
             (ok(json!({ "tools": tools })), None)
         }
+        // Each guide is also a prompt, so clients that list prompts offer them to the user by name.
+        "prompts/list" => {
+            let prompts: Vec<Value> = snn_core::guides()
+                .into_iter()
+                .map(|g| json!({ "name": g.name, "title": g.title, "description": g.description }))
+                .collect();
+            (ok(json!({ "prompts": prompts })), None)
+        }
+        "prompts/get" => match snn_core::find_guide(params["name"].as_str().unwrap_or("")) {
+            Ok(g) => {
+                let text = format!("Edit the project open in snn-editor by following this guide.\n\n{}", g.text);
+                (ok(json!({ "description": g.description, "messages": [{ "role": "user", "content": { "type": "text", "text": text } }] })), None)
+            }
+            Err(e) => (Some(rpc_error(id, -32602, &e)), None),
+        },
         "tools/call" => {
             let Some(name) = params["name"].as_str() else {
                 return (Some(rpc_error(id, -32602, "tools/call needs a tool name")), None);
@@ -107,6 +122,8 @@ fn handle_message(ctx: &mut Ctx, msg: &Value, session: Option<&str>) -> (Option<
             allow_media(ctx.app, &editor);
             publish(ctx.app, &editor);
             let (text, is_error) = match result {
+                // A guide is Markdown; as a JSON string every line break in it would be escaped.
+                Ok(Value::String(s)) => (s, false),
                 Ok(v) => (serde_json::to_string_pretty(&v).unwrap_or_default(), false),
                 Err(e) => (e, true),
             };

@@ -7,6 +7,7 @@ mod command;
 #[cfg(test)]
 mod demo;
 mod editor;
+mod guides;
 mod library;
 mod model;
 mod probe;
@@ -14,6 +15,7 @@ mod tools;
 
 pub use command::{apply, Command};
 pub use editor::{Editor, EditorState, LogEntry};
+pub use guides::{find_guide, guides, Guide};
 pub use library::{library, Library};
 pub use model::*;
 pub use probe::{probe_mp4, Probe};

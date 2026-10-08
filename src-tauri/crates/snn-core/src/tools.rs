@@ -6,10 +6,12 @@
 
 use crate::command::Command;
 use crate::editor::Editor;
+use crate::guides::{find_guide, guides};
 use crate::library::library;
 use crate::model::*;
 use crate::probe::probe_mp4;
 use serde_json::{json, Value};
+use std::collections::BTreeSet;
 use std::path::Path;
 
 pub struct ToolDef {
@@ -26,7 +28,8 @@ pub const INSTRUCTIONS: &str = "snn-editor is a video editor. These tools read a
 app; the user sees every change live and can undo it. All times are integer frame numbers in the sequence frame rate \
 (see project_get_info for fps). Tracks are listed top to bottom; a video track draws over the video tracks below it, and you can add tracks. Clips on \
 one track cannot overlap: a command that would overlap fails and changes nothing. Start with project_get_info and \
-timeline_get_state, and use batch_apply to make several edits as one undo step.";
+timeline_get_state, and use batch_apply to make several edits as one undo step. The tools say what is possible, not \
+what makes a good edit: before editing for a purpose, call guide_list and read the guide that fits with guide_get.";
 
 fn obj(properties: Value, required: &[&str]) -> Value {
     json!({ "type": "object", "properties": properties, "required": required, "additionalProperties": false })
@@ -75,6 +78,26 @@ pub fn catalog() -> Vec<ToolDef> {
             "library_list",
             "Everything a clip can carry: property keys with their ranges and defaults, effect names, and transition \
              names. Read this before clip_set_property, clip_add_effect or clip_set_transition.",
+            obj(json!({}), &[]),
+            json!({}),
+        ),
+        read(
+            "guide_list",
+            "Editing methods written for this editor: how to cut a raw recording for viewer retention, build an \
+             opening, check pace. Call this before a real editing job and read the guide that fits.",
+            obj(json!({}), &[]),
+            json!({}),
+        ),
+        read(
+            "guide_get",
+            "The full text of one guide from guide_list, as Markdown.",
+            obj(json!({ "name": text("Guide name, for example retention-edit") }), &["name"]),
+            json!({ "name": "retention-edit" }),
+        ),
+        read(
+            "timeline_get_pace",
+            "How often the picture changes: the number of clip starts on visible video tracks in each minute and in \
+             the first 30 seconds, and the longest stretches with no change. Captions are not counted.",
             obj(json!({}), &[]),
             json!({}),
         ),
@@ -396,6 +419,34 @@ impl Editor {
                     p.clip(id).ok_or_else(|| format!("no clip {id}"))?;
                 }
                 Ok(json!({ "shown": args }))
+            }
+            "guide_list" => Ok(json!({ "guides": guides() })),
+            "guide_get" => {
+                let name = args["name"].as_str().ok_or("name must be a string")?;
+                Ok(Value::String(find_guide(name)?.text.to_string()))
+            }
+            "timeline_get_pace" => {
+                let fps = p.settings.fps_num as f64 / p.settings.fps_den as f64;
+                let visible = |c: &&Clip| p.track(&c.track).is_some_and(|t| t.kind == TrackKind::Video && !t.hidden);
+                let end = seq.clips.iter().filter(visible).map(Clip::end).max().unwrap_or(0);
+                let changes: BTreeSet<Frame> = seq.clips.iter().filter(visible).map(|c| c.start).filter(|s| *s > 0).collect();
+                let minute = p.settings.frames(60.0).max(1);
+                let mut minutes = vec![0u32; ((end + minute - 1) / minute) as usize];
+                for at in &changes {
+                    minutes[(at / minute) as usize] += 1;
+                }
+                let points: Vec<Frame> = std::iter::once(0).chain(changes.iter().copied()).chain([end]).collect();
+                let mut still: Vec<(Frame, Frame)> = points.windows(2).map(|w| (w[0], w[1])).filter(|(a, b)| b > a).collect();
+                still.sort_by_key(|(a, b)| a - b);
+                let seconds = |f: Frame| (f as f64 / fps * 10.0).round() / 10.0;
+                Ok(json!({
+                    "fps": fps,
+                    "duration_frames": end,
+                    "changes": changes.len(),
+                    "first_30_seconds": changes.iter().filter(|at| **at < p.settings.frames(30.0)).count(),
+                    "per_minute": minutes,
+                    "longest_without_change": still.iter().take(5).map(|(a, b)| json!({ "from": a, "to": b, "seconds": seconds(b - a) })).collect::<Vec<_>>(),
+                }))
             }
             "media_list" => Ok(json!({ "media": p.media })),
             "library_list" => Ok(serde_json::to_value(library()).unwrap()),

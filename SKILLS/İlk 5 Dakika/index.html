@@ -1,0 +1,242 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>İlk 5 Dakika</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: Bölüm 1'in devamı. Üstte dakika dakika ısı haritası, ortada ritim döngüsü, altta kare sayfaları ve plan. */
+:root{
+  --bg:#eef1f4; --panel:#ffffff; --fg:#10161d; --muted:#556170; --line:#d3dae1;
+  --rec:#d9372b; --teal:#13766e; --teal-soft:#dcefed; --amber:#a86d00; --amber-soft:#f8ecd2; --violet:#6a4fb0;
+  --strip:#0c1116;
+  --h0:#e3e9ef; --h1:#bfd8d5; --h2:#7fbab3; --h3:#2f8f86; --h4:#0b5750; --hfg:#10161d; --hfg2:#ffffff;
+  --f-display:"Bricolage Grotesque","Segoe UI",system-ui,sans-serif;
+  --f-body:"Instrument Sans","Segoe UI",system-ui,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0d1217; --panel:#151c24; --fg:#e8edf2; --muted:#93a0ae; --line:#27313c;
+  --rec:#ff6a5c; --teal:#4fc9bd; --teal-soft:#13302d; --amber:#f0b44a; --amber-soft:#33270f; --violet:#a994f0;
+  --strip:#06090c;
+  --h0:#1b2530; --h1:#1f4642; --h2:#27726b; --h3:#3aa89d; --h4:#7fe0d4; --hfg:#e8edf2; --hfg2:#06090c; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0d1217; --panel:#151c24; --fg:#e8edf2; --muted:#93a0ae; --line:#27313c;
+  --rec:#ff6a5c; --teal:#4fc9bd; --teal-soft:#13302d; --amber:#f0b44a; --amber-soft:#33270f; --violet:#a994f0;
+  --strip:#06090c;
+  --h0:#1b2530; --h1:#1f4642; --h2:#27726b; --h3:#3aa89d; --h4:#7fe0d4; --hfg:#e8edf2; --hfg2:#06090c; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:16px/1.6 var(--f-body);padding-inline:clamp(16px,4vw,48px);padding-block:32px 80px}
+.wrap{max-width:1080px;margin-inline:auto;display:flex;flex-direction:column;gap:64px}
+h1,h2,h3{font-family:var(--f-display);line-height:1.1;text-wrap:balance;margin:0}
+h1{font-size:clamp(2.6rem,8vw,5.2rem);font-weight:800;letter-spacing:-.03em}
+h2{font-size:clamp(1.6rem,4vw,2.3rem);font-weight:700;letter-spacing:-.02em}
+h3{font-size:1.15rem;font-weight:700}
+p{margin:0;max-width:68ch}
+.mono{font:600 .74rem var(--f-mono);letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.rec{display:inline-flex;align-items:center;gap:8px}
+.rec::before{content:"";width:10px;height:10px;border-radius:50%;background:var(--rec)}
+section{display:flex;flex-direction:column;gap:24px}
+.lead{font-size:1.15rem;color:var(--muted)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1px;background:var(--line);border:1px solid var(--line)}
+.stat{background:var(--panel);padding:20px;display:flex;flex-direction:column;gap:4px}
+.stat b{font:800 2.4rem/1 var(--f-display);font-variant-numeric:tabular-nums}
+.stat span{color:var(--muted);font-size:.9rem}
+.note{border-left:3px solid var(--amber);background:var(--amber-soft);padding:14px 18px;font-size:.95rem}
+.note p{max-width:none}
+
+/* heatmap */
+.heat{background:var(--panel);border:1px solid var(--line);padding:16px;overflow-x:auto}
+.heat table{border-collapse:separate;border-spacing:3px;width:100%;min-width:560px}
+.heat th{font:600 .7rem var(--f-mono);color:var(--muted);text-align:center;padding-bottom:4px;text-transform:uppercase}
+.heat th:first-child{text-align:left}
+.heat td.n{font-size:.82rem;white-space:nowrap;padding-right:10px;max-width:300px;overflow:hidden;text-overflow:ellipsis}
+.heat td.c{text-align:center;font:600 .82rem var(--f-mono);font-variant-numeric:tabular-nums;padding:6px 0;min-width:48px}
+.legend{display:flex;gap:12px;flex-wrap:wrap;align-items:center;font-size:.85rem;color:var(--muted)}
+.legend i{display:inline-block;width:18px;height:12px;vertical-align:middle;margin-right:4px}
+.avg{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;align-items:end;min-height:150px}
+.avg .col{display:flex;flex-direction:column;justify-content:flex-end;align-items:stretch;gap:6px;height:150px}
+.avg .bar{background:var(--teal);min-height:2px}
+.avg span{font:600 .8rem var(--f-mono);text-align:center}
+.avg small{font:400 .7rem var(--f-mono);color:var(--muted);text-align:center}
+
+/* loop */
+.loop{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;counter-reset:l}
+.loop div{background:var(--panel);border:1px solid var(--line);border-top:3px solid var(--teal);padding:16px;display:flex;flex-direction:column;gap:6px}
+.loop div b{font:700 1rem var(--f-display)}
+.loop div span{font-size:.9rem;color:var(--muted)}
+
+/* findings */
+.finds{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px}
+.card{background:var(--panel);border:1px solid var(--line);padding:20px;display:flex;flex-direction:column;gap:10px}
+.card .mono{color:var(--rec)}
+.card p{font-size:.95rem}
+.card ul,.list{margin:0;padding-left:1.1em;display:flex;flex-direction:column;gap:6px}
+.card.do{border-top:3px solid var(--teal)} .card.dont{border-top:3px solid var(--rec)}
+
+/* sheets */
+.sheet{margin:0;background:var(--strip);padding:6px;display:flex;flex-direction:column;gap:6px}
+.sheet img{display:block;width:100%;height:auto}
+.sheet figcaption{font:400 .72rem var(--f-mono);color:#9fb0c0;padding:4px 4px 6px;line-height:1.5}
+.sheets{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr));gap:20px}
+
+/* timeline plan */
+.script{background:var(--panel);border:1px solid var(--line);overflow-x:auto}
+.script table{border-collapse:collapse;width:100%;min-width:640px}
+.script th,.script td{text-align:left;padding:12px 16px;vertical-align:top;border-bottom:1px solid var(--line);font-size:.93rem}
+.script th{font:600 .72rem var(--f-mono);text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.script td:first-child{font:600 .85rem var(--f-mono);white-space:nowrap;color:var(--rec)}
+.script tr:last-child td{border-bottom:0}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px}
+footer{color:var(--muted);font-size:.85rem}
+a{color:var(--teal)}
+.ts{display:inline-block;font:600 .74rem var(--f-mono);white-space:nowrap;text-decoration:none;color:var(--rec);border:1px solid currentColor;padding:0 6px;border-radius:3px;line-height:1.5;margin-inline:2px}
+.ts:hover{background:var(--rec);color:var(--bg)}
+.heat a{color:inherit;text-decoration:none;display:block}
+.heat td.n a{text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px}
+.heat td.c a:hover{text-decoration:underline}
+.sheet .ts{color:#ff8a7e}
+.sheet .ts:hover{background:#ff8a7e;color:#0c1116}
+:focus-visible{outline:2px solid var(--rec);outline-offset:2px}
+</style>
+
+<div class="wrap">
+
+<header style="display:flex;flex-direction:column;gap:20px">
+  <span class="mono rec">Bölüm 2 · 30 video · 0:00–5:00</span>
+  <h1>İlk 5 dakika</h1>
+  <p class="lead">Bölüm 1'de ilk 90 saniyeyi açtık. Burada aynı 30 videonun ilk 5 dakikasını inceledim: her 10 saniyede bir kare (videoda 30 kare), dakika dakika kesim sayısı ve her videoda neyin tekrar ettiği. Amaç, izleyiciyi 90. saniyeden sonra da ekranda tutan yapıyı bulmak.</p>
+</header>
+
+<div class="stats">
+  <div class="stat"><b>~19</b><span>dakikada ortalama görüntü değişimi (yaklaşık 3 saniyede bir)</span></div>
+  <div class="stat"><b>23 → 18</b><span>ilk dakikadan beşinci dakikaya değişim sayısı: sadece hafif düşüş</span></div>
+  <div class="stat"><b>~45 sn</b><span>tarif veya eşya ekranının ortalama dönüş aralığı (gözle sayım)</span></div>
+  <div class="stat"><b>2 / 30</b><span>videoda sponsor bölümü ilk 5 dakikada (ikisi de Opera GX)</span></div>
+</div>
+
+<div class="note"><p><b>Linkler:</b> <span class="ts" style="pointer-events:none">▶ 0:00</span> rozetleri YouTube'da o videonun o anına açılır. Isı haritasında video adı videoyu, sayı hücresi o dakikanın başını açar. Zamanlar kare örneklemesinden hesaplandı ve çoğu kontrol edildi, ±3 saniye kayabilir.<br><br><b>Sınır:</b> Ses incelenmedi, sessizlik ölçümü sonuç vermedi. Müzik, ses efekti ve konuşma enerjisi hakkında bir şey söyleyemem. Kesim sayısı kamera hareketini de sayar. Altyazı, izlenme ve yorum yok, bu yüzden "hangisi daha çok izlendi" kıyası yapılamıyor. Sayıların kesinliği "yaklaşık" düzeyinde.</p></div>
+
+<section>
+  <span class="mono">Tempo</span>
+  <h2>İlk dakikadan sonra hız düşmüyor</h2>
+  <p>30 videonun ortalaması dakikada yaklaşık 19 görüntü değişimi. İlk dakika en hızlı (23), sonra 18–19 civarında düz bir çizgi. Yani açılıştaki hız bir "giriş efekti" değil, videonun genel ritmi.</p>
+  <div class="avg" id="avg" role="img" aria-label="Dakika başına ortalama görüntü değişimi"></div>
+
+  <div class="heat">
+    <table id="heat"><thead><tr><th>Video</th><th>0–1</th><th>1–2</th><th>2–3</th><th>3–4</th><th>4–5</th></tr></thead><tbody></tbody></table>
+  </div>
+  <div class="legend"><span><i style="background:var(--h0)"></i>0–10</span><span><i style="background:var(--h1)"></i>11–20</span><span><i style="background:var(--h2)"></i>21–30</span><span><i style="background:var(--h3)"></i>31–45</span><span><i style="background:var(--h4)"></i>46+</span><span>Hücre = o dakikadaki görüntü değişimi sayısı</span></div>
+
+  <div class="finds">
+    <div class="card"><span class="mono">En yavaş</span><h3>Uzun plan videolar</h3><p>Aphernix'in PvP videosu (4. satır: 3, 19, 7, 3, 2) <a class="ts" href="https://www.youtube.com/watch?v=SzG_9AgBnTE&amp;t=0s" target="_blank" rel="noopener">▶ 0:00</a> ve boss dövüşü olan video (son dakikada 4) <a class="ts" href="https://www.youtube.com/watch?v=scrEJNsnsjA&amp;t=205s" target="_blank" rel="noopener">▶ 3:25</a> uzun, kesilmeyen planlarla ilerliyor. Çatışmanın kendisi izleyiciyi tutuyor, kesim gerekmiyor.</p></div>
+    <div class="card"><span class="mono">En hızlı</span><h3>Efektli ve parlak videolar</h3><p>"Özel aletler var!" <a class="ts" href="https://www.youtube.com/watch?v=KVh0GnU03bc&amp;t=0s" target="_blank" rel="noopener">▶ 0:00</a> dakikada 52–70 değişim, "En kötü seed" <a class="ts" href="https://www.youtube.com/watch?v=tOH7IRcZymQ&amp;t=0s" target="_blank" rel="noopener">▶ 0:00</a> 32–51. Burada renkli efekt, flaş ve sürekli ekran değişimi var. Bu seviye herkes için uygun değil, ama "enerji" için en kolay yol.</p></div>
+    <div class="card"><span class="mono">Orta</span><h3>Çoğunluk: 15–25 arası</h3><p>Tarif ekranı, çıkarma, geçiş ve yeni yer kombinasyonu. Bu aralık, modpack videosu için başlangıç hedefi olarak mantıklı.</p></div>
+  </div>
+</section>
+
+<section>
+  <span class="mono">Ritim döngüsü</span>
+  <h2>2. dakikadan sonra aynı dört adım dönüyor</h2>
+  <p>Karelere bakınca videoların büyük kısmı kendini tekrar eden bir döngüyle ilerliyor. Her tur yaklaşık 40–60 saniye sürüyor.</p>
+  <div class="loop">
+    <div><b>1 · Hedef</b><span>Ne arıyoruz: köy, maden, boss, bir eşya. Genelde bir cümle ve bir yön.</span></div>
+    <div><b>2 · Eşya veya tarif</b><span>Çalışma masası, "Yeni Tarifler Açıldı!" bildirimi, eşya açıklaması (mor kutu).</span></div>
+    <div><b>3 · Deneme</b><span>Eşyanın gücü ilk kez kullanılıyor: kazma, kılıç, mob, havada uçma.</span></div>
+    <div><b>4 · Sonuç</b><span>Wow, yıkım veya ölüm ekranı. Sonra yeni hedef.</span></div>
+  </div>
+  <div class="finds">
+    <div class="card"><span class="mono">Gözlem</span><h3>"Öldün!" ekranı bir ritim aracı</h3><p>En az 5 videoda ilk 5 dakikada ölüm ekranı var: Aphernix PvP <a class="ts" href="https://www.youtube.com/watch?v=SzG_9AgBnTE&amp;t=125s" target="_blank" rel="noopener">▶ 2:05</a>, Büyüleri giyebiliyorum <a class="ts" href="https://www.youtube.com/watch?v=cKdMYy_zhY0&amp;t=225s" target="_blank" rel="noopener">▶ 3:45</a>, Her eşya sonsuz <a class="ts" href="https://www.youtube.com/watch?v=9evVHoBIG48&amp;t=245s" target="_blank" rel="noopener">▶ 4:05</a>, Her ölüm bir ödül <a class="ts" href="https://www.youtube.com/watch?v=eoEAf3TP5aY&amp;t=45s" target="_blank" rel="noopener">▶ 0:45</a>, Her şey çok şanslı <a class="ts" href="https://www.youtube.com/watch?v=DX5h1JxdjaA&amp;t=55s" target="_blank" rel="noopener">▶ 0:55</a>. Ölüm mesajı komik ("… tarafından katledildi"). Hardcore olmayan videolarda bu, hem gerginlik hem espri veriyor.</p></div>
+    <div class="card"><span class="mono">Gözlem</span><h3>Sayaç ve sayı sahneleri</h3><p>Hotbar üstünde artan bir sayı (kazılan blok) <a class="ts" href="https://www.youtube.com/watch?v=jxeKHx5yXJo&amp;t=5s" target="_blank" rel="noopener">▶ 0:05</a>, ekrana yapışan büyük sarı sayı <a class="ts" href="https://www.youtube.com/watch?v=LKH_oKX2BYs&amp;t=25s" target="_blank" rel="noopener">▶ 0:25</a>, "GÜN 1 → GÜN 6" <a class="ts" href="https://www.youtube.com/watch?v=UC-KVNeJ24M&amp;t=35s" target="_blank" rel="noopener">▶ 0:35</a> <a class="ts" href="https://www.youtube.com/watch?v=UC-KVNeJ24M&amp;t=215s" target="_blank" rel="noopener">▶ 3:35</a>, "+1 Galibiyet" <a class="ts" href="https://www.youtube.com/watch?v=sB9gZBg7bho&amp;t=35s" target="_blank" rel="noopener">▶ 0:35</a>. İzleyici ilerlemeyi sayıdan görüyor ve neyin arttığını bekliyor.</p></div>
+    <div class="card"><span class="mono">Gözlem</span><h3>Bölüm kartları</h3><p>"CÜCELER KÖYÜ" <a class="ts" href="https://www.youtube.com/watch?v=5m-ed7Qvl5Q&amp;t=175s" target="_blank" rel="noopener">▶ 2:55</a>, "3. Adım: Platform Yap" ve "12. Adım: Oyunu Bitir" <a class="ts" href="https://www.youtube.com/watch?v=_DK3t09BE2U&amp;t=5s" target="_blank" rel="noopener">▶ 0:05</a> gibi başlıklar videoyu böler. Aphernix'in su dünyası videosunda 12 adımlık bir yapı var ve ilk karede son adım gösteriliyor.</p></div>
+    <div class="card"><span class="mono">Gözlem</span><h3>Küçük siyah-beyaz çerçeve</h3><p>Ekranın ortasında küçültülmüş, grili oyun görüntüsü. Hatırlatma, geri dönüş veya şaka anı için kullanılıyor. Videoda 2–4 kez çıkıyor. Örnek: <a class="ts" href="https://www.youtube.com/watch?v=eoEAf3TP5aY&amp;t=55s" target="_blank" rel="noopener">▶ 0:55</a>.</p></div>
+  </div>
+</section>
+
+<section>
+  <span class="mono">Sponsor ve ikinci çağrı</span>
+  <h2>Sponsor bölümü ne zaman, nasıl giriyor</h2>
+  <div class="finds">
+    <div class="card"><h3>Opera GX, ≈0:45–1:50</h3><p>Hız yarışı videosunda sponsor, oyun başladıktan kısa süre sonra geliyor. Başlangıcı <a class="ts" href="https://www.youtube.com/watch?v=v6XkUw6bTrw&amp;t=45s" target="_blank" rel="noopener">▶ 0:45</a>. Şaka ile bağlanıyor: ekranda "sa beyler napi" yazılıyor <a class="ts" href="https://www.youtube.com/watch?v=v6XkUw6bTrw&amp;t=85s" target="_blank" rel="noopener">▶ 1:25</a>, sonra tarayıcının arka planı gösteriliyor. Tanıtım oyuncuların konuşmasının devamı gibi akıyor.</p></div>
+    <div class="card"><h3>Opera GX, ≈2:35–3:15</h3><p>Boss videosunda sponsor daha geç ve daha uzun <a class="ts" href="https://www.youtube.com/watch?v=scrEJNsnsjA&amp;t=155s" target="_blank" rel="noopener">▶ 2:35</a>: ayarlar ekranı, "arka plan müziği" gösterimi, sonra kazma ve boss dövüşüne dönüş <a class="ts" href="https://www.youtube.com/watch?v=scrEJNsnsjA&amp;t=205s" target="_blank" rel="noopener">▶ 3:25</a>. Bölüm bitince çatışma başlıyor, yani izleyiciyi bekleten bir sonraki ödül var.</p></div>
+    <div class="card"><h3>Abone çağrısı farklı yerde de olabilir</h3><p>Totem videosunda açılışta abone kartı yok. Yeşil "ABONE OL" grafiği 1:25 civarında <a class="ts" href="https://www.youtube.com/watch?v=QajhhJxe1hI&amp;t=85s" target="_blank" rel="noopener">▶ 1:25</a>, ilk eşya yapımından sonra geliyor. Çağrıyı açılışa sıkıştırmak şart değil.</p></div>
+    <div class="card"><h3>Skeç videosu</h3><p>"İçerik çalıyorum" videosu 0:15'te "Bu Video Parodi Amaçlıdır!" kartı koyuyor <a class="ts" href="https://www.youtube.com/watch?v=u7xcPZ5h6p8&amp;t=15s" target="_blank" rel="noopener">▶ 0:15</a>. Kendi başına bir şaka ve bir güvenlik önlemi.</p></div>
+  </div>
+</section>
+
+<section>
+  <span class="mono">Karelerle</span>
+  <h2>Sekiz videonun ilk 5 dakikası</h2>
+  <p>Her sayfa 30 kare: soldan sağa, yukarıdan aşağı, 10 saniyede bir. Yani sağ alt kare 4:50.</p>
+  <div class="sheets">
+    <figure class="sheet"><img src="img/f5_antarktika.jpg" alt="Antarktika 5 dakika" width="1920" height="900"><figcaption>Antarktika 100 gün <a class="ts" href="https://www.youtube.com/watch?v=UC-KVNeJ24M&amp;t=0s" target="_blank" rel="noopener">▶ 0:00</a>: 0:00–0:20 sinematik manzara, sonra GÜN 1'den <a class="ts" href="https://www.youtube.com/watch?v=UC-KVNeJ24M&amp;t=35s" target="_blank" rel="noopener">▶ 0:35</a> GÜN 6'ya <a class="ts" href="https://www.youtube.com/watch?v=UC-KVNeJ24M&amp;t=215s" target="_blank" rel="noopener">▶ 3:35</a>. 5 dakikada 5 gün geçiyor, harita ve sayaç hep ekranda.</figcaption></figure>
+    <figure class="sheet"><img src="img/f5_bosslar.jpg" alt="Mega bosslar 5 dakika" width="1920" height="900"><figcaption>Mega bosslar <a class="ts" href="https://www.youtube.com/watch?v=scrEJNsnsjA&amp;t=0s" target="_blank" rel="noopener">▶ 0:00</a>: başlık kartı, oyun, ≈2:35'te sponsor bölümü <a class="ts" href="https://www.youtube.com/watch?v=scrEJNsnsjA&amp;t=155s" target="_blank" rel="noopener">▶ 2:35</a>, ≈3:25'ten sonra uzun bir boss dövüşü <a class="ts" href="https://www.youtube.com/watch?v=scrEJNsnsjA&amp;t=205s" target="_blank" rel="noopener">▶ 3:25</a> (kesim sayısı 4'e düşüyor).</figcaption></figure>
+    <figure class="sheet"><img src="img/f5_cark.jpg" alt="Çark videosu 5 dakika" width="1920" height="900"><figcaption>Çark videosu <a class="ts" href="https://www.youtube.com/watch?v=oUI5Y-1fVxo&amp;t=5s" target="_blank" rel="noopener">▶ 0:05</a>: kareler büyük ölçüde "EŞYA YÜKSELTİCİ" ekranı. Bir yüzde ve çark animasyonu ana içerik. Ekranda kumarı özendirmediğini söyleyen bir uyarı yazısı da çıkıyor <a class="ts" href="https://www.youtube.com/watch?v=oUI5Y-1fVxo&amp;t=28s" target="_blank" rel="noopener">▶ 0:28</a>.</figcaption></figure>
+    <figure class="sheet"><img src="img/f5_speedrun.jpg" alt="Hız yarışı 5 dakika" width="1920" height="900"><figcaption>Hız yarışı <a class="ts" href="https://www.youtube.com/watch?v=v6XkUw6bTrw&amp;t=0s" target="_blank" rel="noopener">▶ 0:00</a>: ≈0:45–1:50 arası Opera GX <a class="ts" href="https://www.youtube.com/watch?v=v6XkUw6bTrw&amp;t=45s" target="_blank" rel="noopener">▶ 0:45</a>, sonra sonra arkadaşlarla serbest oyun, adları karakterlerin üstünde.</figcaption></figure>
+    <figure class="sheet"><img src="img/f5_okyanus.jpg" alt="Su dünyası 5 dakika" width="1920" height="900"><figcaption>Su dünyası <a class="ts" href="https://www.youtube.com/watch?v=_DK3t09BE2U&amp;t=5s" target="_blank" rel="noopener">▶ 0:05</a>: ilk karelerde "12. Adım: Oyunu Bitir", sonra hemen okyanus. Sandık, ödül, tarif ekranı: oyun dalga dalga ilerliyor.</figcaption></figure>
+    <figure class="sheet"><img src="img/f5_kazmak.jpg" alt="Kazmak zorlaşıyor 5 dakika" width="1920" height="900"><figcaption>Kazmak zorlaşıyor <a class="ts" href="https://www.youtube.com/watch?v=RDxmtZcbymM&amp;t=5s" target="_blank" rel="noopener">▶ 0:05</a>: başlık kartı, sonra sürekli tarif ekranı ve bir hotbar sayacı. İlk 5 dakika neredeyse tamamen eşya yapımı, hotbar sayacı <a class="ts" href="https://www.youtube.com/watch?v=RDxmtZcbymM&amp;t=95s" target="_blank" rel="noopener">▶ 1:35</a>.</figcaption></figure>
+    <figure class="sheet"><img src="img/f5_totem.jpg" alt="Totem videosu 5 dakika" width="1920" height="900"><figcaption>Totem videosu <a class="ts" href="https://www.youtube.com/watch?v=QajhhJxe1hI&amp;t=0s" target="_blank" rel="noopener">▶ 0:00</a>: yıldız geçiş sahnesi, 1:25 civarı ABONE OL grafiği <a class="ts" href="https://www.youtube.com/watch?v=QajhhJxe1hI&amp;t=85s" target="_blank" rel="noopener">▶ 1:25</a>, sonra bol tarif ve madenden çıkan altın.</figcaption></figure>
+    <figure class="sheet"><img src="img/f5_olum.jpg" alt="Her ölüm bir ödül 5 dakika" width="1920" height="900"><figcaption>Her ölüm bir ödül <a class="ts" href="https://www.youtube.com/watch?v=eoEAf3TP5aY&amp;t=0s" target="_blank" rel="noopener">▶ 0:00</a>: 0:45 civarında "Öldün!" ekranı <a class="ts" href="https://www.youtube.com/watch?v=eoEAf3TP5aY&amp;t=45s" target="_blank" rel="noopener">▶ 0:45</a>. Video kuralı ile ölümü bir ödül anına çeviriyor.</figcaption></figure>
+  </div>
+</section>
+
+<section>
+  <span class="mono">Atarikafa için</span>
+  <h2>1:30–5:00 planı</h2>
+  <div class="script">
+    <table>
+      <thead><tr><th>Süre</th><th>Ne olmalı</th><th>Edit</th></tr></thead>
+      <tbody>
+        <tr><td>1:30–2:30</td><td>İlk tam döngü: hedef, tarif/eşya, ilk güçlü deneme. İlk gerçek "oha" burada.</td><td>Eşya açıklamasını (mor kutu) 2 saniye yakın tut, sonra denemeye kes.</td></tr>
+        <tr><td>2:30–3:30</td><td>İlk risk: güçlü mob, ölüm ekranı veya yanlış deneme. Komik bir ölüm mesajı veya başarısızlık.</td><td>Ölüm ekranını kes, gülmeyi veya sessizliği bırak. Uzatma.</td></tr>
+        <tr><td>3:30–4:00</td><td>(Sponsor varsa) kısa, şakayla bağlı bölüm. Yoksa ikinci abone kartı.</td><td>Sponsorluğu ilk mini-zirveden sonra koy, açılışa değil.</td></tr>
+        <tr><td>4:00–5:00</td><td>Yeni hedef veya yeni mekanik: ilk yan bölge, köy, mağara, boss işareti.</td><td>Bölüm kartı ("2. Adım: ...") veya sayaç göster. Sayı artıyorsa göster.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="cols">
+    <div class="card do"><h3>Her 45–60 saniyede bir yap</h3>
+      <ul class="list">
+        <li>Yeni bir eşya, tarif veya mekanik göster.</li>
+        <li>Sonucu hemen dene, sonraki hedefi söyle.</li>
+        <li>Bir sayı veya ilerleme göstergesi güncelle.</li>
+      </ul></div>
+    <div class="card do"><h3>Her videoda bir "alt hikaye" olsun</h3>
+      <ul class="list">
+        <li>Bir yapı: köy, boss, tuzak.</li>
+        <li>Bir ödül: yeni eşya, güçlenme, yok edici bir araç.</li>
+        <li>Bir komik düşüş: ilk ölüm, ilk büyük hata.</li>
+      </ul></div>
+    <div class="card dont"><h3>Kaçın</h3>
+      <ul class="list">
+        <li>5 dakika boyunca tek tür sahne: sadece kazı veya sadece menü.</li>
+        <li>Sponsoru 0:40'ta koymak (özellikle ilk videoda).</li>
+        <li>Sayı artıyorsa sayacı göstermemek.</li>
+      </ul></div>
+  </div>
+</section>
+
+<footer>
+  <p>Kaynak: Documents klasöründeki 30 mp4 (640×360), ilk 300 saniye. Her 10 saniyede bir kare ve dakika başına sahne değişimi sayımı (eşik 0,25). <a href="https://claude.ai/artifact/JSbRXbfxft1X9y8d564REz">Bölüm 1: İlk 90 saniye</a></p>
+</footer>
+</div>
+
+<script>
+(function(){
+  var names=["Antarktika 100 gün","+1 Speed Keyboard","1.000.000 süper maden","Aynı canı paylaşıyoruz","Bloklar dünyaya kopyalanıyor","Bloklarını giyebiliyorum","Büyüleri giyebiliyorum","Dünya devasa","Dünya yürüdükçe oluşuyor","Eşya üretmek çok güçlü","Eşyalar süper rastgele","Eşyaları ekebiliyorum","Her eşya sonsuz","Her ölüm bir ödül","Her şey çok şanslı","Kazmak zorlaşıyor","Mega bosslar var","Süper tek blok","Tüm eşyalar totemden","Yapılar 100 kat fazla","Çark çevirerek bitiriyoruz","Özel aletler var (!)","Özel aletler var (...)","Özel kazmalar var","Özel sandıklar var","Üretimler karışık","İçerik çalıyorum","Speedrun rastgele özellikler","Sadece su dünyasında","En kötü seedde 100 gün"];
+  var ids=["UC-KVNeJ24M","sB9gZBg7bho","jxeKHx5yXJo","SzG_9AgBnTE","YsAcOYutS7A","ZoAPnoJNaNE","cKdMYy_zhY0","-MNCSQSrzPk","f4BYIrAzSaU","pgJcZ9aNYUA","yJss7Onzd7A","6U5eWFznZuo","9evVHoBIG48","eoEAf3TP5aY","DX5h1JxdjaA","RDxmtZcbymM","scrEJNsnsjA","IRCwBK89aQ0","QajhhJxe1hI","YvWbdHyWghE","oUI5Y-1fVxo","KVh0GnU03bc","LKH_oKX2BYs","OWG67AIcokU","5m-ed7Qvl5Q","zllouzcc7k0","u7xcPZ5h6p8","v6XkUw6bTrw","_DK3t09BE2U","tOH7IRcZymQ"];
+  var d=[[22,24,19,11,18],[7,11,9,4,12],[10,11,13,13,11],[3,19,7,3,2],[20,17,26,18,18],[26,12,12,15,8],[26,25,17,29,20],[24,13,22,9,4],[33,37,19,21,31],[28,20,17,32,13],[13,12,21,19,20],[25,12,10,19,13],[18,23,32,3,15],[20,15,15,14,23],[25,17,23,15,27],[22,19,19,21,18],[21,11,18,13,4],[28,21,37,42,36],[27,20,5,17,10],[8,13,9,16,18],[24,8,21,9,18],[52,70,21,30,51],[28,12,21,21,19],[36,22,18,20,14],[30,21,17,9,11],[18,16,13,8,11],[19,16,20,45,25],[15,16,14,29,26],[22,21,20,23,16],[37,32,36,51,37]];
+  function lvl(v){return v<=10?0:v<=20?1:v<=30?2:v<=45?3:4}
+  var tb=document.querySelector("#heat tbody"),h="";
+  d.forEach(function(r,i){
+    var u="https://www.youtube.com/watch?v="+ids[i];h+="<tr><td class=\"n\" title=\""+names[i]+"\"><a href=\""+u+"\" target=\"_blank\" rel=\"noopener\">"+names[i]+"</a></td>";
+    r.forEach(function(v,j){var l=lvl(v);h+="<td class=\"c\" style=\"background:var(--h"+l+");color:"+(l>=3?"var(--hfg2)":"var(--hfg)")+"\"><a href=\""+u+"&t="+(j*60)+"s\" target=\"_blank\" rel=\"noopener\">"+v+"</a></td>"});
+    h+="</tr>";
+  });
+  tb.innerHTML=h;
+  var avg=[0,0,0,0,0];d.forEach(function(r){r.forEach(function(v,i){avg[i]+=v})});
+  avg=avg.map(function(v){return Math.round(v/d.length*10)/10});
+  var max=Math.max.apply(null,avg),a="",lab=["0–1 dk","1–2 dk","2–3 dk","3–4 dk","4–5 dk"];
+  avg.forEach(function(v,i){a+="<div class=\"col\"><span>"+String(v).replace(".",",")+"</span><div class=\"bar\" style=\"height:"+Math.round(v/max*110)+"px\"></div><small>"+lab[i]+"</small></div>"});
+  document.getElementById("avg").innerHTML=a;
+})();
+</script>
+
+</body></html>

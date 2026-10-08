@@ -1,0 +1,298 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>İlk 90 Saniye</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: montaj masası gibi. Üstte 90 sn'lik zaman çizelgesi, altında kare şeritleri ve yapılacaklar listesi. */
+:root{
+  --bg:#eef1f4; --panel:#ffffff; --fg:#10161d; --muted:#556170; --line:#d3dae1;
+  --rec:#d9372b; --rec-soft:#fbe4e1; --teal:#13766e; --teal-soft:#dcefed; --amber:#a86d00; --amber-soft:#f8ecd2;
+  --strip:#0c1116;
+  --f-display:"Bricolage Grotesque","Segoe UI",system-ui,sans-serif;
+  --f-body:"Instrument Sans","Segoe UI",system-ui,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0d1217; --panel:#151c24; --fg:#e8edf2; --muted:#93a0ae; --line:#27313c;
+  --rec:#ff6a5c; --rec-soft:#3a1c19; --teal:#4fc9bd; --teal-soft:#13302d; --amber:#f0b44a; --amber-soft:#33270f;
+  --strip:#06090c; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0d1217; --panel:#151c24; --fg:#e8edf2; --muted:#93a0ae; --line:#27313c;
+  --rec:#ff6a5c; --rec-soft:#3a1c19; --teal:#4fc9bd; --teal-soft:#13302d; --amber:#f0b44a; --amber-soft:#33270f;
+  --strip:#06090c; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:16px/1.6 var(--f-body);padding-inline:clamp(16px,4vw,48px);padding-block:32px 80px}
+.wrap{max-width:1080px;margin-inline:auto;display:flex;flex-direction:column;gap:64px}
+h1,h2,h3{font-family:var(--f-display);line-height:1.1;text-wrap:balance;margin:0}
+h1{font-size:clamp(2.6rem,8vw,5.2rem);font-weight:800;letter-spacing:-.03em}
+h2{font-size:clamp(1.6rem,4vw,2.3rem);font-weight:700;letter-spacing:-.02em}
+h3{font-size:1.2rem;font-weight:700}
+p{margin:0;max-width:68ch}
+.mono{font-family:var(--f-mono);font-size:.78rem;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.rec{display:inline-flex;align-items:center;gap:8px}
+.rec::before{content:"";width:10px;height:10px;border-radius:50%;background:var(--rec)}
+section{display:flex;flex-direction:column;gap:24px}
+.lead{font-size:1.15rem;color:var(--muted)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1px;background:var(--line);border:1px solid var(--line)}
+.stat{background:var(--panel);padding:20px;display:flex;flex-direction:column;gap:4px}
+.stat b{font:800 2.4rem/1 var(--f-display);font-variant-numeric:tabular-nums}
+.stat span{color:var(--muted);font-size:.9rem}
+.note{border-left:3px solid var(--amber);background:var(--amber-soft);padding:14px 18px;font-size:.95rem}
+.note p{max-width:none}
+
+/* timeline */
+.tl{display:flex;flex-direction:column;gap:10px}
+.ruler{display:flex;justify-content:space-between;font:600 .72rem var(--f-mono);color:var(--muted)}
+.track{display:grid;grid-template-columns:5fr 10fr 10fr 20fr 45fr;gap:3px;min-height:76px}
+.seg{padding:10px 10px 12px;display:flex;flex-direction:column;justify-content:space-between;gap:6px;min-width:0;font-size:.78rem;line-height:1.3;color:#fff}
+.seg b{font:700 .8rem var(--f-display)}
+.s1{background:var(--rec)} .s2{background:#b9501d} .s3{background:#7a5bb5} .s4{background:var(--teal)} .s5{background:#31485f}
+.segs-detail{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:16px}
+.segs-detail div{border-top:3px solid var(--line);padding-top:12px;display:flex;flex-direction:column;gap:6px;font-size:.92rem}
+.segs-detail div:nth-child(1){border-color:var(--rec)} .segs-detail div:nth-child(2){border-color:#b9501d} .segs-detail div:nth-child(3){border-color:#7a5bb5} .segs-detail div:nth-child(4){border-color:var(--teal)} .segs-detail div:nth-child(5){border-color:#31485f}
+@media(max-width:640px){.track{grid-template-columns:1fr;min-height:0}.ruler{display:none}}
+
+/* frame strips */
+.cases{display:flex;flex-direction:column;gap:40px}
+.case{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:28px;align-items:start}
+.case figure{margin:0;background:var(--strip);padding:6px;display:flex;flex-direction:column;gap:6px}
+.case figure img{display:block;width:100%;height:auto}
+.case figcaption{font:400 .7rem var(--f-mono);color:#9fb0c0;padding:2px 4px 4px}
+.case .txt{display:flex;flex-direction:column;gap:10px}
+.ts{display:inline-block;font:600 .74rem var(--f-mono);white-space:nowrap;text-decoration:none;color:var(--rec);border:1px solid currentColor;padding:0 6px;border-radius:3px;line-height:1.5;margin-inline:2px}
+.ts:hover{background:var(--rec);color:var(--bg)}
+.tag{align-self:flex-start;font:600 .7rem var(--f-mono);letter-spacing:.05em;text-transform:uppercase;padding:3px 8px;background:var(--teal-soft);color:var(--teal)}
+.case ul,.list{margin:0;padding-left:1.1em;display:flex;flex-direction:column;gap:6px}
+.case li,.list li{max-width:60ch}
+@media(max-width:820px){.case{grid-template-columns:1fr}}
+.pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.pair figure{margin:0;background:var(--strip);padding:6px}
+.pair img{display:block;width:100%;height:auto}
+.pair figcaption{font:400 .7rem var(--f-mono);color:#9fb0c0;padding:6px 4px 2px}
+
+/* toolkit */
+.tools{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px}
+.tool{background:var(--panel);border:1px solid var(--line);padding:18px;display:flex;flex-direction:column;gap:8px}
+.tool p{font-size:.92rem;color:var(--muted)}
+.tool .mono{color:var(--rec)}
+
+/* script */
+.script{background:var(--panel);border:1px solid var(--line);overflow-x:auto}
+.script table{border-collapse:collapse;width:100%;min-width:640px}
+.script th,.script td{text-align:left;padding:12px 16px;vertical-align:top;border-bottom:1px solid var(--line);font-size:.93rem}
+.script th{font:600 .72rem var(--f-mono);text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.script td:first-child{font:600 .85rem var(--f-mono);white-space:nowrap;color:var(--rec)}
+.script tr:last-child td{border-bottom:0}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px}
+.card{background:var(--panel);border:1px solid var(--line);padding:20px;display:flex;flex-direction:column;gap:10px}
+.card.do{border-top:3px solid var(--teal)} .card.dont{border-top:3px solid var(--rec)}
+.titles{display:flex;flex-wrap:wrap;gap:8px}
+.titles span{background:var(--panel);border:1px solid var(--line);padding:8px 12px;font-weight:600;font-size:.92rem}
+.titles em{font-style:normal;color:var(--rec)}
+footer{color:var(--muted);font-size:.85rem}
+:focus-visible{outline:2px solid var(--rec);outline-offset:2px}
+</style>
+
+<div class="wrap">
+
+<header style="display:flex;flex-direction:column;gap:20px">
+  <span class="mono rec">30 video · 360p · kare kare inceleme</span>
+  <h1>İlk 90 saniye</h1>
+  <p class="lead">Türkçe Minecraft videolarının açılışını saniye saniye açtım. Hook'u, abone çağrısını, kesim hızını ve ilk ödülün ne zaman geldiğini çıkardım. Sonunda atarikafa için kayıt, konuşma, edit, başlık ve kapak planı var.</p>
+</header>
+
+<div class="stats">
+  <div class="stat"><b>30</b><span>video incelendi (3 klasör boştu, atlandı)</span></div>
+  <div class="stat"><b>~23 dk</b><span>ortalama süre (12,7 ile 45,9 dk arası)</span></div>
+  <div class="stat"><b>~2,4 sn</b><span>ilk 30 saniyede ortalama görüntü değişimi aralığı</span></div>
+  <div class="stat"><b>~10–20 sn</b><span>abone kartının göründüğü aralık (örneklerde)</span></div>
+</div>
+
+<div class="note"><p><b>Linkler:</b> Her <span class="ts" style="pointer-events:none">▶ 0:00</span> rozeti YouTube'da o videonun o anına açılır. Zamanlar kare örneklemesinden hesaplandı, ±3 saniye kayabilir. <br><br><b>Nelere dayanıyor:</b> Klasörlerde sadece mp4 vardı. Altyazı, yorum, kapak ve izlenme sayısı yoktu, ses de yazıya çevrilmedi. Bu yüzden analiz görüntüye dayanıyor: yazılar, kartlar, kesimler, kamera. Ne söylendiğini ilk raporda altyazıdan bildiğim videolar için biliyorum. Görüntü değişimi sayısı kamera hareketini de sayar, kesimden biraz yüksek çıkar.</p></div>
+
+<section>
+  <span class="mono">Ortak kalıp</span>
+  <h2>Açılış 5 parçadan oluşuyor</h2>
+  <p>Videoların çoğu 90 saniyeyi aşağı yukarı aynı sırayla kullanıyor. Süreler örneklerden çıkardığım ortalama, her videoda birebir tutmuyor.</p>
+  <div class="tl">
+    <div class="ruler"><span>0 sn</span><span>5</span><span>15</span><span>25</span><span>45</span><span>90 sn</span></div>
+    <div class="track" role="img" aria-label="0-90 saniye zaman çizelgesi">
+      <div class="seg s1"><b>Kural</b></div>
+      <div class="seg s2"><b>Teaser montaj</b>en çılgın anlar</div>
+      <div class="seg s3"><b>Abone kartı</b>kanal logosu + buton</div>
+      <div class="seg s4"><b>Oyuna giriş</b>ilk wow</div>
+      <div class="seg s5"><b>İlk mekanik döngü</b>kurala göre ilk ödül, ilk büyük sürpriz, ilk ölüm veya tehlike</div>
+    </div>
+  </div>
+  <div class="segs-detail">
+    <div><h3>0–5 sn · Kural</h3><p>Kural tek cümle. Çoğu videoda ekrana "MINECRAFT AMA" başlık kartı geliyor, altında kelime kelime altyazı akıyor.</p></div>
+    <div><h3>5–15 sn · Teaser</h3><p>Videonun en abartılı anları hızlı kesimle gösteriliyor: OP zırh, ejderha yumurtası, dev patlama. Bazı kareler siyah-beyaz ve küçük çerçevede, "geçmişten kesit" gibi.</p></div>
+    <div><h3>15–25 sn · Abone kartı</h3><p>Kanal avatarı ve "Abone ol" butonu ekranın ortasında beliriyor, bazen imleç tıklıyor ve "Abone olundu" oluyor. Uzun konuşma yok.</p></div>
+    <div><h3>25–45 sn · Oyuna giriş</h3><p>Oyuncu hemen odun kırıyor veya çalışma masasını açıyor. İlk "Yeni Tarifler Açıldı" bildirimi ve ilk eşya burada geliyor.</p></div>
+    <div><h3>45–90 sn · İlk döngü</h3><p>Kural ilk kez tam çalışıyor. Çalışma masası/tarif ekranı sık sık açılıp gösteriliyor, görüntü hâlâ saniyede bir değişiyor.</p></div>
+  </div>
+</section>
+
+<section>
+  <span class="mono">Karelerle</span>
+  <h2>Beş farklı açılış tarzı</h2>
+  <p>Her şerit videonun ilk 10 saniyesi, saniyede bir kare (soldan sağa, üst satırdan alt satıra).</p>
+
+  <div class="cases">
+
+    <article class="case">
+      <figure><img src="img/hook_wollech.jpg" alt="Şans bloğu videosunun ilk 10 saniyesi" width="1500" height="340"><figcaption>"Her şey çok şanslı": ilk 10 sn · <a class="ts" href="https://www.youtube.com/watch?v=DX5h1JxdjaA&amp;t=0s" target="_blank" rel="noopener">▶ 0:00</a></figcaption></figure>
+      <div class="txt"><span class="tag">Teaser montaj</span><h3>Önce en iyi anlar, sonra oyun</h3>
+        <ul><li>İlk saniyelerde şans bloğu, creeper, yıldırım gibi parlak kesitler <a class="ts" href="https://www.youtube.com/watch?v=DX5h1JxdjaA&amp;t=8s" target="_blank" rel="noopener">▶ 0:08</a>.</li><li>"MINECRAFT AMA" animasyonlu başlık kartı <a class="ts" href="https://www.youtube.com/watch?v=DX5h1JxdjaA&amp;t=4s" target="_blank" rel="noopener">▶ 0:04</a>.</li><li>Altına kelime kelime, büyük, beyaz kenarlı altyazı yazılıyor.</li><li>Oyun yaklaşık 15. saniyede başlıyor <a class="ts" href="https://www.youtube.com/watch?v=DX5h1JxdjaA&amp;t=16s" target="_blank" rel="noopener">▶ 0:16</a>.</li></ul></div>
+    </article>
+
+    <article class="case">
+      <figure><img src="img/hook_antarktika.jpg" alt="Antarktika videosunun ilk 10 saniyesi" width="1500" height="340"><figcaption>"Antarktika'da 100 gün": ilk 10 sn · <a class="ts" href="https://www.youtube.com/watch?v=UC-KVNeJ24M&amp;t=0s" target="_blank" rel="noopener">▶ 0:00</a></figcaption></figure>
+      <div class="txt"><span class="tag">Sinematik</span><h3>Sayaç ve shader manzaraları</h3>
+        <ul><li>"DAY 97" dairesel sayaç hızla geri sayıyor <a class="ts" href="https://www.youtube.com/watch?v=UC-KVNeJ24M&amp;t=1s" target="_blank" rel="noopener">▶ 0:01</a>, sarı "x960" yazısı da akıyor <a class="ts" href="https://www.youtube.com/watch?v=UC-KVNeJ24M&amp;t=19s" target="_blank" rel="noopener">▶ 0:19</a>: sayı vaadi ilk saniyelerde.</li><li>Shader'lı buz kalesi, gemi, kutup ayısı manzaraları.</li><li>Oyun başlayınca köşede "GÜN 1" ve minimap sürekli ekranda <a class="ts" href="https://www.youtube.com/watch?v=UC-KVNeJ24M&amp;t=30s" target="_blank" rel="noopener">▶ 0:30</a>.</li><li>Bu videoda 90 sn'de 41 görüntü değişimi var, en hareketlilerden.</li></ul></div>
+    </article>
+
+    <article class="case">
+      <figure><img src="img/hook_berk.jpg" alt="Eşya üretmek çok güçlü videosunun ilk 10 saniyesi" width="1500" height="340"><figcaption>"Eşya üretmek çok güçlü": ilk 10 sn · <a class="ts" href="https://www.youtube.com/watch?v=pgJcZ9aNYUA&amp;t=0s" target="_blank" rel="noopener">▶ 0:00</a></figcaption></figure>
+      <div class="txt"><span class="tag">Yüz kamerası</span><h3>Yüz, enerji ve yazılı efektler</h3>
+        <ul><li>Yakın plan kamera, "MERHABA!" ve "MİNECRAFT OYNUYORUZ!" yıldırım efektli yazı.</li><li>10–14. saniyede YouTube arayüzü maketi ve tıklayan imleç <a class="ts" href="https://www.youtube.com/watch?v=pgJcZ9aNYUA&amp;t=10s" target="_blank" rel="noopener">▶ 0:10</a>.</li><li>Oyunda köşede küçük yüz kamerası ve Instagram adı etiketi <a class="ts" href="https://www.youtube.com/watch?v=pgJcZ9aNYUA&amp;t=22s" target="_blank" rel="noopener">▶ 0:22</a>.</li><li>~1:00'de "BEĞEN / ABONE OL / ZİLİ AÇ" animasyonu <a class="ts" href="https://www.youtube.com/watch?v=pgJcZ9aNYUA&amp;t=60s" target="_blank" rel="noopener">▶ 1:00</a>.</li></ul></div>
+    </article>
+
+    <article class="case">
+      <figure><img src="img/hook_ens.jpg" alt="Dünya devasa videosunun ilk 10 saniyesi" width="1500" height="340"><figcaption>"Dünya devasa": ilk 10 sn · <a class="ts" href="https://www.youtube.com/watch?v=-MNCSQSrzPk&amp;t=0s" target="_blank" rel="noopener">▶ 0:00</a></figcaption></figure>
+      <div class="txt"><span class="tag">Sade ve hızlı</span><h3>Manzara, abone kartı, oyun</h3>
+        <ul><li>İlk karelerde sadece dünya ve oyuncu.</li><li>~12. saniyede yuvarlak kanal avatarlı abone kartı çıkıyor <a class="ts" href="https://www.youtube.com/watch?v=-MNCSQSrzPk&amp;t=12s" target="_blank" rel="noopener">▶ 0:12</a>.</li><li>Sonra yüz kamerası sol üstte, oyun hemen akıyor.</li><li>Köşede küçük yazı kutuları: "KÜP ŞEKLİNDE" <a class="ts" href="https://www.youtube.com/watch?v=-MNCSQSrzPk&amp;t=16s" target="_blank" rel="noopener">▶ 0:16</a>, "ÇOK TEHLİKELİ" <a class="ts" href="https://www.youtube.com/watch?v=-MNCSQSrzPk&amp;t=80s" target="_blank" rel="noopener">▶ 1:20</a>.</li></ul></div>
+    </article>
+
+    <article class="case">
+      <figure><img src="img/hook_wisyg.jpg" alt="İçerik çalıyorum videosunun ilk 10 saniyesi" width="1500" height="340"><figcaption>"İçerik çalıyorum": ilk 10 sn · <a class="ts" href="https://www.youtube.com/watch?v=u7xcPZ5h6p8&amp;t=0s" target="_blank" rel="noopener">▶ 0:00</a></figcaption></figure>
+      <div class="txt"><span class="tag">Skeç</span><h3>Siyah ekran, sadece ses</h3>
+        <ul><li>~15 saniye boyunca siyah ekranda iki profil resmi: sesli arama gibi <a class="ts" href="https://www.youtube.com/watch?v=u7xcPZ5h6p8&amp;t=2s" target="_blank" rel="noopener">▶ 0:02</a>.</li><li>Görüntü yok, konuşma ve şaka var. Sonra oyuna kesiliyor <a class="ts" href="https://www.youtube.com/watch?v=u7xcPZ5h6p8&amp;t=17s" target="_blank" rel="noopener">▶ 0:17</a>.</li><li>Riskli ama komik bir diyalogla tutuyor. Ses zayıfsa bu açılış çalışmaz.</li></ul></div>
+    </article>
+
+  </div>
+</section>
+
+<section>
+  <span class="mono">Tam 90 saniye</span>
+  <h2>Her 6 saniyede bir kare</h2>
+  <div class="pair">
+    <figure><img src="img/t90_wollech.jpg" alt="Şans videosu 0-90 saniye" width="1500" height="506"><figcaption>"Her şey çok şanslı": kural kartı, teaser, oyun, tarif ekranı, ilk ölüm ekranı <a class="ts" href="https://www.youtube.com/watch?v=DX5h1JxdjaA&amp;t=55s" target="_blank" rel="noopener">▶ 0:55</a></figcaption></figure>
+    <figure><img src="img/t90_seed.jpg" alt="En kötü seed videosu 0-90 saniye" width="1500" height="506"><figcaption>"En kötü seed": taş çöl, abone kartı ~10 sn <a class="ts" href="https://www.youtube.com/watch?v=tOH7IRcZymQ&amp;t=10s" target="_blank" rel="noopener">▶ 0:10</a>, yavaş ilerleyen gerçek oyun</figcaption></figure>
+    <figure><img src="img/t90_okyanus.jpg" alt="Su dünyası videosu 0-90 saniye" width="1500" height="506"><figcaption>"Sadece su dünyasında": adım kartı <a class="ts" href="https://www.youtube.com/watch?v=_DK3t09BE2U&amp;t=5s" target="_blank" rel="noopener">▶ 0:05</a>, ödüller, gemi enkazı</figcaption></figure>
+    <figure><img src="img/t90_speedrun.jpg" alt="Speedrun videosu 0-90 saniye" width="1500" height="506"><figcaption>"Speedrun, rastgele özellikler": arkadaşlar, yaklaşık 45 sn'den sonra sponsor bölümü <a class="ts" href="https://www.youtube.com/watch?v=v6XkUw6bTrw&amp;t=45s" target="_blank" rel="noopener">▶ 0:45</a></figcaption></figure>
+  </div>
+</section>
+
+<section>
+  <span class="mono">Edit araç kutusu</span>
+  <h2>Videolarda tekrar tekrar gördüğüm 8 şey</h2>
+  <div class="tools">
+    <div class="tool"><span class="mono">Altyazı</span><h3>Kelime kelime, büyük</h3><p>Çoğu videoda yazılar ekranın alt ortasında, 1–3 kelime, beyaz üstüne kalın kenarlık. İzleyici sese bakmadan da takip ediyor.</p></div>
+    <div class="tool"><span class="mono">Başlık kartı</span><h3>"MINECRAFT AMA" animasyonu</h3><p>İlk 5 saniyede kısa, parlak bir kart. Videonun markası gibi çalışıyor. Örnek: <a class="ts" href="https://www.youtube.com/watch?v=DX5h1JxdjaA&amp;t=4s" target="_blank" rel="noopener">▶ 0:04</a></p></div>
+    <div class="tool"><span class="mono">Abone kartı</span><h3>Avatar + buton animasyonu</h3><p>Tıklama ve "Abone olundu" geçişiyle, 3 saniye sürüyor. Örnekler: <a class="ts" href="https://www.youtube.com/watch?v=-MNCSQSrzPk&amp;t=12s" target="_blank" rel="noopener">▶ 0:12</a> <a class="ts" href="https://www.youtube.com/watch?v=OWG67AIcokU&amp;t=19s" target="_blank" rel="noopener">▶ 0:19</a> <a class="ts" href="https://www.youtube.com/watch?v=tOH7IRcZymQ&amp;t=10s" target="_blank" rel="noopener">▶ 0:10</a></p></div>
+    <div class="tool"><span class="mono">Arayüz</span><h3>Tarif ve eşya ekranı</h3><p>"Yeni Tarifler Açıldı!" bildirimi ve çalışma masası ekranı çok kullanılıyor. Modun kuralı burada görünüyor, anlatmaya gerek kalmıyor.</p></div>
+    <div class="tool"><span class="mono">Sayaç</span><h3>Gün, puan, seviye göstergesi</h3><p>"GÜN 1" <a class="ts" href="https://www.youtube.com/watch?v=UC-KVNeJ24M&amp;t=30s" target="_blank" rel="noopener">▶ 0:30</a>, "DAY 97" <a class="ts" href="https://www.youtube.com/watch?v=UC-KVNeJ24M&amp;t=1s" target="_blank" rel="noopener">▶ 0:01</a>, "+281 TARİF" <a class="ts" href="https://www.youtube.com/watch?v=LKH_oKX2BYs&amp;t=23s" target="_blank" rel="noopener">▶ 0:23</a>, "AŞAMA 1" <a class="ts" href="https://www.youtube.com/watch?v=sB9gZBg7bho&amp;t=32s" target="_blank" rel="noopener">▶ 0:32</a>. Sayı ilerlemeyi gösteriyor, izleyici "nereye gidiyor" diye merak ediyor.</p></div>
+    <div class="tool"><span class="mono">Geçmiş kesiti</span><h3>Siyah-beyaz kutu</h3><p>Oyunun içinde küçük, gri tonlu bir çerçeve: hatırlatma ya da vurgu. Örnek: <a class="ts" href="https://www.youtube.com/watch?v=eoEAf3TP5aY&amp;t=55s" target="_blank" rel="noopener">▶ 0:55</a></p></div>
+    <div class="tool"><span class="mono">Yüz kamerası</span><h3>Küçük, köşede</h3><p>Oyun alanını kapatmıyor. Tepkiyi gösteriyor. Bazı kanallar hiç kullanmıyor ve yine de izleniyor.</p></div>
+    <div class="tool"><span class="mono">Sponsor</span><h3>45–90 sn arası</h3><p>Bir videoda Opera GX bölümü açılışın hemen sonrasında geliyor <a class="ts" href="https://www.youtube.com/watch?v=v6XkUw6bTrw&amp;t=45s" target="_blank" rel="noopener">▶ 0:45</a>. İzleyici sabırsızsa kaybedilen yer burası.</p></div>
+  </div>
+</section>
+
+<section>
+  <span class="mono">Atarikafa için</span>
+  <h2>Kayıt planı</h2>
+  <div class="cols">
+    <div class="card do"><h3>Ne kaydet</h3>
+      <ul class="list">
+        <li>Önce 20–30 saniyelik "vaat" sahnesi kaydet: modun en abartılı sonucu. Bunu teaser olarak kullanacaksın.</li>
+        <li>Yeni dünyada sıfırdan başla. İlk 30 saniyede ilk wow'u yakala.</li>
+        <li>Her mekaniği en az 3 farklı yerde dene. En iyi deneme montajda yer alsın.</li>
+        <li>Ölüm, hata ve beklenmedik sonuçları kes. Tepkin gerçek olduğu için işe yarıyor.</li>
+      </ul></div>
+    <div class="card do"><h3>Nasıl konuş</h3>
+      <ul class="list">
+        <li>İlk cümle: "Minecraft'ta ama [kural]." Gerisini sonra anlat.</li>
+        <li>Ses açık ve yüksek enerjili olsun. Fısıltı yok.</li>
+        <li>Her sürprizde ses tonunu yükselt, sessiz geçme. "Oha", "Yok artık" gibi sesler kazanıyor.</li>
+        <li>Kendi kendine plan yapıyormuş gibi konuş: "Önce odun lazım, sonra fırın."</li>
+      </ul></div>
+    <div class="card do"><h3>Ekranda ne göster</h3>
+      <ul class="list">
+        <li>Modun tarif ekranı ve eşya açıklaması: kuralı gösterir.</li>
+        <li>Bir sayaç (gün, seviye, çarpan). Sayı ilerledikçe merak büyür.</li>
+        <li>Eşyanın büyülerini ve özelliklerini yakın çekimle.</li>
+        <li>Mod listesini sabitlenmiş yorumda ve açıklamada ver: ilk raporda "mod ismi ne?" yorumları çoktu.</li>
+      </ul></div>
+  </div>
+</section>
+
+<section>
+  <span class="mono">İlk 90 saniye</span>
+  <h2>Hazır akış</h2>
+  <div class="script">
+    <table>
+      <thead><tr><th>Süre</th><th>Ekranda</th><th>Ses / konuşma</th><th>Edit</th></tr></thead>
+      <tbody>
+        <tr><td>0–4 sn</td><td>Vaadin en çılgın sahnesi, tek plan</td><td>"Minecraft'ta ama [kural]!"</td><td>Hızlı zoom, "MINECRAFT AMA" kartı, kelime kelime altyazı</td></tr>
+        <tr><td>4–12 sn</td><td>3–4 kısa kesit: en güçlü sonuçlar</td><td>"Peki [abartılı örnek] olursa ne olur?"</td><td>Her kesit 1–2 sn, hafif ses efekti, sonuncuda bir sorunun cevabı saklı kalsın</td></tr>
+        <tr><td>12–18 sn</td><td>Oyuncu karakteri, oyun başlangıcı</td><td>"Hadi videoda görelim." + tek cümle abone çağrısı</td><td>Abone kartı animasyonu, 3 saniye</td></tr>
+        <tr><td>18–40 sn</td><td>Odun, çalışma masası, ilk modlu tarif</td><td>"Normal başlıyoruz ama bakın ne oluyor..."</td><td>Tarif bildirimi, UI yakın çekim, boş yürümeyi kes</td></tr>
+        <tr><td>40–90 sn</td><td>Kuralın ilk tam sonucu, ilk büyük sürpriz</td><td>Gerçek tepki, abartı yok ama enerjik</td><td>Sayaç göster, her 8–10 sn'de bir görüntü veya kamera değişsin</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <span class="mono">Edit ve süre</span>
+  <h2>Nasıl kesersin, ne kadar uzun yaparsın</h2>
+  <div class="cols">
+    <div class="card"><h3>Kesim hızı</h3><p>Açılışta saniyede bir görüntü değişimi hedefle. İlk 30 saniyede 10–15 değişim, sonra 5–8 saniyede bir. Her şeyi hızlandırma, tepki anlarında dur.</p></div>
+    <div class="card"><h3>Süre</h3><p>Başlangıç için 12–18 dakika. Sebebi: bu aralık hem fikri bitirmeye yetiyor hem de yüksek izlenme ortalamasını koruyor. İzlenmesi iyi giderse serinin sonunda "tüm hikaye" birleştirmesi yap.</p></div>
+    <div class="card"><h3>Ses</h3><p>Müzik düşük, konuşma yüksek olsun. Kısa "whoosh" ve vurgu sesleri ekle. Şüpheliysen sessizlik koyma, boşluk izleyiciyi kaybettirir.</p></div>
+  </div>
+  <div class="cols">
+    <div class="card dont"><h3>Yapma</h3>
+      <ul class="list">
+        <li>Kuralı 30 saniyeden sonra anlatma.</li>
+        <li>Abone çağrısını uzun yapma. Tek cümle, kart ile.</li>
+        <li>İlk dakikada sponsor koyma.</li>
+        <li>Hiç yazı olmadan, sadece oyun görüntüsü ile aç.</li>
+      </ul></div>
+    <div class="card do"><h3>Yap</h3>
+      <ul class="list">
+        <li>Altyazıyı videoya göm.</li>
+        <li>Teaser ile aç, sonra kurala dön.</li>
+        <li>Tarif ve eşya ekranını göster.</li>
+        <li>Ölüm ve beklenmedik anları sakla ve kullan.</li>
+      </ul></div>
+  </div>
+</section>
+
+<section>
+  <span class="mono">Başlık ve kapak</span>
+  <h2>Kalıp ve fikirler</h2>
+  <p>Yeni 30 videonun başlıkları: neredeyse hepsi "Minecraft ama ___" ile başlıyor. Üç ayrı bitiş görüyorum: "!" (enerji), "..." (merak) ve "?" (soru). Kapaklarda tek nesne, büyük sayı veya UI kutusu ve ok var.</p>
+  <div class="titles">
+    <span>Minecraft ama <em>TÜM MODLAR</em> TEK BLOK OLDU!</span>
+    <span>Minecraft ama <em>HER BÜYÜ</em> 1000 SEVİYE...</span>
+    <span>Minecraft ama <em>BLOKLARI</em> SATIN ALIYORUM!</span>
+    <span>Minecraft ama <em>EŞYALAR</em> SANİYEDE BÜYÜYOR...</span>
+    <span>100 GÜN <em>MODPACK</em> DÜNYASINDA HAYATTA KALDIM</span>
+    <span>Minecraft ama <em>KENDİ TARİFİMİ</em> YAZABİLİYORUM!</span>
+    <span>Minecraft ama <em>HER ÖLÜM</em> MODU DEĞİŞTİRİYOR...</span>
+    <span>Minecraft ama <em>TÜM MOBLAR</em> BOSS?</span>
+  </div>
+  <div class="cols">
+    <div class="card"><h3>Kapak</h3><ul class="list"><li>Tek karakter veya tek eşya, yüz opsiyonel.</li><li>Büyük sayı: 100, 1000, 1.000.000.</li><li>Eşya özellik kutusu (tooltip) çok iyi okunuyor.</li><li>Ok veya daire ile tek bir şeye dikkat çek.</li><li>Yazı en fazla 3 kelime.</li></ul></div>
+    <div class="card"><h3>Başlangıç planı</h3><ul class="list"><li>3 videoyu birlikte hazırla, sonra yayınla.</li><li>Her videodan 2–3 Shorts çıkar (20–40 sn).</li><li>İlk videoda kapağı iki farklı tasarla ve izlenmeyi karşılaştır.</li><li>Yorumları oku: "mod ismi", "devam", "daha uzun" sinyalleri tekrarlıyor.</li></ul></div>
+  </div>
+</section>
+
+<footer>
+  <p>Kaynak: Documents klasöründeki 30 mp4 (640×360), ilk 90 saniye. Altyazı, yorum, kapak ve izlenme verisi bu klasörlerde yoktu. Başlık, kapak ve süre yorumlarında önceki 60 videonun verisini de kullandım.</p>
+</footer>
+
+</div>
+
+</body></html>

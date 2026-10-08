@@ -202,6 +202,53 @@ fn every_catalog_tool_is_wired_up() {
 }
 
 #[test]
+fn guides_are_listed_and_readable() {
+    let mut e = demo();
+    let listed = e.call_tool("agent", "guide_list", json!({})).unwrap();
+    let names: Vec<&str> = listed["guides"].as_array().unwrap().iter().map(|g| g["name"].as_str().unwrap()).collect();
+    assert!(names.contains(&"retention-edit"));
+    for g in crate::guides() {
+        assert!(g.text.starts_with("# ") && !g.title.is_empty() && !g.description.is_empty(), "{}", g.name);
+        assert_eq!(e.call_tool("agent", "guide_get", json!({"name": g.name})).unwrap(), json!(g.text));
+        // A guide must not send an agent to a tool that does not exist.
+        for word in g.text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')) {
+            let prefixes = ["timeline_", "clip_", "project_", "history_", "media_", "batch_", "view_", "guide_", "library_"];
+            if prefixes.iter().any(|p| word.starts_with(p) && word.len() > p.len()) {
+                assert!(catalog().iter().any(|t| t.name == word), "{} mentions unknown tool {word}", g.name);
+            }
+        }
+    }
+    assert!(e.call_tool("agent", "guide_get", json!({"name": "nope"})).unwrap_err().contains("retention-edit"));
+}
+
+#[test]
+fn pace_counts_picture_changes_per_minute() {
+    let mut e = Editor::default();
+    e.call_tool("t", "media_import", json!({"path": "C:/a.mp4", "kind": "video", "duration": 9000})).unwrap();
+    let media = e.project().media[0].id.clone();
+    let mut add = |track: &str, start: i64, duration: i64, kind: &str| {
+        let mut args = json!({"track": track, "start": start, "duration": duration, "name": "x", "kind": kind});
+        match kind {
+            "video" => args["media"] = json!(media),
+            _ => args["text"] = json!("x"),
+        }
+        e.call_tool("t", "timeline_add_clip", args).unwrap();
+    };
+    // 30 fps: two cuts in the first 30 seconds, a card later in the first minute, one cut in the second minute.
+    add("V1", 0, 300, "video");
+    add("V1", 300, 300, "video");
+    add("V1", 600, 1500, "video");
+    add("V1", 2100, 1500, "video");
+    add("V3", 1200, 90, "graphic");
+    add("T1", 10, 20, "caption");
+    let pace = e.call_tool("t", "timeline_get_pace", json!({})).unwrap();
+    assert_eq!(pace["changes"], 4);
+    assert_eq!(pace["per_minute"], json!([3, 1]));
+    assert_eq!(pace["first_30_seconds"], 2);
+    assert_eq!(pace["longest_without_change"][0], json!({"from": 2100, "to": 3600, "seconds": 50.0}));
+}
+
+#[test]
 fn batch_is_atomic_and_one_undo_step() {
     let mut e = demo();
     let before = e.project().clone();
