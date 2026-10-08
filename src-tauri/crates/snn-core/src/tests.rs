@@ -889,3 +889,192 @@ fn a_video_with_sound_can_back_an_audio_clip_and_a_silent_one_cannot() {
     let err = e.execute("user", add(&silent)).unwrap_err();
     assert!(err.contains("no sound track"), "got: {err}");
 }
+
+fn add_clip(e: &mut Editor, track: &str, start: i64, duration: i64, kind: &str, link_to: Option<&str>) -> String {
+    let mut args = json!({"track": track, "start": start, "duration": duration, "name": kind, "kind": kind});
+    if let Some(other) = link_to {
+        args["link_to"] = json!(other);
+    }
+    let r = e.execute("user", cmd(json!({"tool": "timeline.add_clip", "args": args}))).unwrap();
+    r["clip"].as_str().unwrap().to_string()
+}
+
+/// A video on V1 and the sound taken from it on A1, linked, both 0 to 30.
+fn pair(e: &mut Editor) -> (String, String) {
+    let v = add_clip(e, "V1", 0, 30, "video", None);
+    let a = add_clip(e, "A1", 0, 30, "audio", Some(&v));
+    (v, a)
+}
+
+fn link_of(e: &Editor, id: &str) -> Option<String> {
+    e.project().clip(id).unwrap().link.clone()
+}
+
+#[test]
+fn a_linked_pair_moves_in_time_and_each_half_can_change_track() {
+    let mut e = Editor::default();
+    let (v, a) = pair(&mut e);
+    assert!(link_of(&e, &v).is_some() && link_of(&e, &v) == link_of(&e, &a));
+
+    // Dragging the video up to V2 moves the pair in time; the sound stays on its own track.
+    let moved = json!({"clips": [v, a], "delta": 60, "tracks": {v.clone(): "V2"}});
+    e.execute("user", cmd(json!({"tool": "timeline.move_clips", "args": moved}))).unwrap();
+    let (vc, ac) = (e.project().clip(&v).unwrap().clone(), e.project().clip(&a).unwrap().clone());
+    assert_eq!((vc.track.as_str(), vc.start), ("V2", 60));
+    assert_eq!((ac.track.as_str(), ac.start), ("A1", 60));
+    assert_eq!(vc.link, ac.link, "the link survives a track change");
+    assert_no_overlaps(&e);
+
+    // Moving the sound alone to another audio track keeps it linked to the video.
+    e.execute("user", cmd(json!({"tool": "timeline.move_clip", "args": {"clip": a, "start": 60, "track": "A3"}}))).unwrap();
+    assert_eq!(e.project().clip(&a).unwrap().track, "A3");
+    assert_eq!(link_of(&e, &v), link_of(&e, &a));
+
+    // The whole move is one undo step, and the track change goes with it.
+    e.undo("user").unwrap();
+    assert_eq!(e.project().clip(&a).unwrap().track, "A1");
+}
+
+#[test]
+fn a_track_change_must_fit_the_clip_and_be_free() {
+    let mut e = Editor::default();
+    let (v, a) = pair(&mut e);
+    add_clip(&mut e, "V2", 60, 30, "video", None);
+    let try_move = |e: &mut Editor, clips: serde_json::Value, delta: i64, tracks: serde_json::Value| {
+        e.execute("user", cmd(json!({"tool": "timeline.move_clips", "args": {"clips": clips, "delta": delta, "tracks": tracks}})))
+    };
+    // Sound cannot go on a video track.
+    assert!(try_move(&mut e, json!([v, a]), 0, json!({ a.clone(): "V2" })).unwrap_err().contains("cannot go on track V2"));
+    // The video would land on the clip already on V2 at frame 60.
+    assert!(try_move(&mut e, json!([v, a]), 60, json!({ v.clone(): "V2" })).unwrap_err().contains("overlap"));
+    // A track can only be given for a clip that is being moved.
+    assert!(try_move(&mut e, json!([a]), 0, json!({ v.clone(): "V2" })).unwrap_err().contains("not in the list"));
+    assert_eq!(e.project().clip(&v).unwrap().track, "V1", "a failed move changes nothing");
+}
+
+#[test]
+fn clips_can_swap_tracks_in_one_move() {
+    let mut e = Editor::default();
+    let x = add_clip(&mut e, "V1", 0, 30, "video", None);
+    let y = add_clip(&mut e, "V2", 0, 30, "video", None);
+    // Each lands where the other was. Checking against the old places would refuse this.
+    let swap = json!({"clips": [x, y], "delta": 0, "tracks": {x.clone(): "V2", y.clone(): "V1"}});
+    e.execute("user", cmd(json!({"tool": "timeline.move_clips", "args": swap}))).unwrap();
+    assert_eq!(e.project().clip(&x).unwrap().track, "V2");
+    assert_eq!(e.project().clip(&y).unwrap().track, "V1");
+    // Two moved clips that end up on the same spot are refused.
+    let clash = json!({"clips": [x, y], "delta": 0, "tracks": {x.clone(): "V1", y.clone(): "V1"}});
+    assert!(e.execute("user", cmd(json!({"tool": "timeline.move_clips", "args": clash}))).unwrap_err().contains("overlap"));
+}
+
+#[test]
+fn link_and_unlink_group_clips_and_unlinking_nothing_is_harmless() {
+    let mut e = Editor::default();
+    let v = add_clip(&mut e, "V1", 0, 30, "video", None);
+    let a = add_clip(&mut e, "A1", 0, 30, "audio", None);
+    let link = |ids: &[&str]| cmd(json!({"tool": "timeline.link", "args": {"clips": ids}}));
+    assert!(e.execute("user", link(&[v.as_str()])).unwrap_err().contains("at least two"));
+    e.execute("user", link(&[v.as_str(), a.as_str()])).unwrap();
+    assert!(link_of(&e, &v).is_some() && link_of(&e, &v) == link_of(&e, &a));
+
+    // Unlinking one clip breaks the whole group; both then stand alone.
+    let unlinked = e.execute("user", cmd(json!({"tool": "timeline.unlink", "args": {"clips": [a]}}))).unwrap();
+    assert_eq!(unlinked["unlinked"].as_array().unwrap().len(), 2);
+    assert!(link_of(&e, &v).is_none() && link_of(&e, &a).is_none());
+
+    // Nothing is linked any more, so unlinking again changes nothing and is not an error.
+    let again = e.execute("user", cmd(json!({"tool": "timeline.unlink", "args": {"clips": [a]}}))).unwrap();
+    assert_eq!(again["unlinked"], json!([]));
+}
+
+#[test]
+fn a_new_clip_can_join_an_existing_link() {
+    let mut e = Editor::default();
+    let (v, a) = pair(&mut e);
+    let second = add_clip(&mut e, "A2", 0, 30, "audio", Some(&v));
+    assert_eq!(link_of(&e, &second), link_of(&e, &v));
+    assert_eq!(link_of(&e, &a), link_of(&e, &v), "the existing partner stays linked");
+    let err = e
+        .execute("user", cmd(json!({"tool": "timeline.add_clip", "args": {"track": "A3", "start": 0, "duration": 5, "name": "x", "kind": "audio", "link_to": "c99"}})))
+        .unwrap_err();
+    assert!(err.contains("no clip c99"), "{err}");
+}
+
+#[test]
+fn split_and_copy_give_each_part_its_own_pair() {
+    let mut e = Editor::default();
+    let (v, a) = pair(&mut e);
+    let group = link_of(&e, &v).unwrap();
+
+    // Cutting both halves at frame 10 makes two new pairs: the left halves keep the old one, the right halves share a new one.
+    let cut = e.execute("user", cmd(json!({"tool": "timeline.split_clip", "args": {"at": 10, "clips": [v, a]}}))).unwrap();
+    let created: Vec<String> = cut["created"].as_array().unwrap().iter().map(|x| x.as_str().unwrap().to_string()).collect();
+    assert_eq!(link_of(&e, &v), Some(group.clone()));
+    assert_eq!(link_of(&e, &a), Some(group.clone()));
+    let right = link_of(&e, &created[0]).unwrap();
+    assert_ne!(right, group);
+    assert_eq!(link_of(&e, &created[1]), Some(right.clone()));
+
+    // Copies of the left halves form a pair of their own, not a pair with the originals.
+    let copy = e.execute("user", cmd(json!({"tool": "timeline.duplicate_clips", "args": {"clips": [v, a], "delta": 100}}))).unwrap();
+    let copies: Vec<String> = copy["created"].as_array().unwrap().iter().map(|x| x.as_str().unwrap().to_string()).collect();
+    let copied = link_of(&e, &copies[0]).unwrap();
+    assert_eq!(link_of(&e, &copies[1]), Some(copied.clone()));
+    assert!(copied != group && copied != right);
+}
+
+#[test]
+fn projects_saved_before_links_pair_video_with_its_sound() {
+    let media = MediaItem {
+        id: "media1".into(),
+        name: "a.mp4".into(),
+        path: "C:/a.mp4".into(),
+        kind: MediaKind::Video,
+        duration: 300,
+        width: 1920,
+        height: 1080,
+        has_audio: true,
+    };
+    let clip = |id: &str, track: &str, start: i64, duration: i64, kind: ClipKind| Clip {
+        id: id.into(),
+        track: track.into(),
+        start,
+        duration,
+        source_in: 0,
+        name: id.into(),
+        kind,
+        media: Some("media1".into()),
+        text: None,
+        template: None,
+        props: Default::default(),
+        effects: vec![],
+        transition_in: None,
+        transition_out: None,
+        last_actor: None,
+        link: None,
+    };
+    let mut old = Project::new("old");
+    old.version = 1;
+    old.media.push(media);
+    old.sequence.clips = vec![
+        clip("v1", "V1", 0, 100, ClipKind::Video),
+        clip("a1", "A1", 0, 100, ClipKind::Audio),
+        // The sound was moved on its own in the old version, so it no longer matches and is not paired.
+        clip("v2", "V2", 200, 50, ClipKind::Video),
+        clip("a2", "A2", 210, 50, ClipKind::Audio),
+    ];
+    // Written as a version-1 file, which has no link field in its clips.
+    let mut value = serde_json::to_value(&old).unwrap();
+    for c in value["sequence"]["clips"].as_array_mut().unwrap() {
+        c.as_object_mut().unwrap().remove("link");
+    }
+    let path = std::env::temp_dir().join(format!("snn-core-legacy-{}.snn", std::process::id()));
+    std::fs::write(&path, serde_json::to_string_pretty(&value).unwrap()).unwrap();
+
+    let mut e = Editor::default();
+    e.open(&path).unwrap();
+    std::fs::remove_file(&path).ok();
+    assert_eq!(e.project().version, PROJECT_VERSION);
+    assert!(link_of(&e, "v1").is_some() && link_of(&e, "v1") == link_of(&e, "a1"));
+    assert!(link_of(&e, "v2").is_none() && link_of(&e, "a2").is_none());
+}

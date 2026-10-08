@@ -41,6 +41,8 @@ export interface Clip {
   transition_in: Transition | null;
   transition_out: Transition | null;
   last_actor: string | null;
+  /** Clips with the same link form one group. Null when the clip stands alone. */
+  link: string | null;
 }
 
 export interface Marker {

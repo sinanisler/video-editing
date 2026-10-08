@@ -22,7 +22,7 @@
       const library = await (await fetch("/dev/library.json")).json();
       const clip = (id, track, start, duration, kind, extra = {}) => ({
         id, track, start, duration, source_in: 0, name: id, kind, media: null, text: null, template: null,
-        props: {}, effects: [], transition_in: null, transition_out: null, last_actor: null, ...extra,
+        props: {}, effects: [], transition_in: null, transition_out: null, last_actor: null, link: null, ...extra,
       });
       const track = (id, kind) => ({ id, name: id, kind, locked: false, muted: false, hidden: false });
       const project = {

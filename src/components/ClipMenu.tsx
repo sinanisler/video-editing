@@ -1,4 +1,4 @@
-import { runCommand, splitAt } from "../commands";
+import { linkClips, runCommand, splitAt, unlinkClips } from "../commands";
 import { commitProps, exec, ui } from "../store";
 import type { MenuItem } from "../store";
 import type { Clip, Project } from "../types";
@@ -54,6 +54,10 @@ export function clipMenu(c: Clip): MenuItem[] {
       },
     },
   ];
+  const linkItems: MenuItem[] = [];
+  if (c.link) linkItems.push({ label: "Unlink clips", hint: "Ctrl+L", action: () => { select(); unlinkClips([c.id]); } });
+  if (ui.get().selection.length > 1) linkItems.push({ label: "Link selected clips", hint: "Ctrl+L", action: () => linkClips(ui.get().selection) });
+  if (linkItems.length) items.push("sep", ...linkItems);
   if (c.transition_in) {
     items.push({ label: "Remove transition at start", action: () => exec("clip.set_transition", { clip: c.id, edge: "in", transition: null }) });
   }

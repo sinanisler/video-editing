@@ -3,6 +3,7 @@ use crate::library::{effect_names, is_effect, is_transition, transition_names, v
 use crate::model::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 
 /// Every edit the editor supports. The serialized form is `{"tool": "...", "args": {...}}`,
 /// and the tool names are the MCP tool names.
@@ -59,6 +60,9 @@ pub enum Command {
         text: Option<String>,
         #[serde(default)]
         template: Option<String>,
+        /// Clip to link the new clip with. The two then select and move together in time.
+        #[serde(default)]
+        link_to: Option<String>,
     },
     #[serde(rename = "timeline.move_clip")]
     MoveClip {
@@ -67,12 +71,25 @@ pub enum Command {
         #[serde(default)]
         track: Option<String>,
     },
-    /// Shifts several clips by the same number of frames, keeping their tracks. All move or none does.
+    /// Shifts several clips by the same number of frames. `tracks` moves some of them to another track too, and
+    /// the rest keep theirs. All move or none does.
     #[serde(rename = "timeline.move_clips")]
-    MoveClips { clips: Vec<String>, delta: Frame },
+    MoveClips {
+        clips: Vec<String>,
+        delta: Frame,
+        #[serde(default)]
+        tracks: BTreeMap<String, String>,
+    },
     /// Copies clips, with their properties and effects, `delta` frames later (or earlier) on the same tracks.
+    /// Copies of linked clips are linked to each other, not to the originals.
     #[serde(rename = "timeline.duplicate_clips")]
     DuplicateClips { clips: Vec<String>, delta: Frame },
+    /// Links the clips into one group, replacing any links they had. Needs at least two.
+    #[serde(rename = "timeline.link")]
+    Link { clips: Vec<String> },
+    /// Breaks the links of every clip in the groups the given clips belong to.
+    #[serde(rename = "timeline.unlink")]
+    Unlink { clips: Vec<String> },
     #[serde(rename = "timeline.trim_clip")]
     TrimClip { clip: String, start: Frame, duration: Frame },
     /// Splits the given clips at `at`, or every clip under `at` on unlocked tracks when `clips` is omitted.
@@ -229,12 +246,35 @@ fn check_source(p: &Project, media: &Option<String>, kind: ClipKind, source_in: 
     Ok(())
 }
 
+/// The link for a copy or a split part of a clip in group `old`. Every part of the same group gets the same new
+/// link, so the parts stay together and are not joined to the originals.
+fn fresh_link(p: &mut Project, map: &mut BTreeMap<String, String>, old: &str) -> String {
+    if let Some(link) = map.get(old) {
+        return link.clone();
+    }
+    let link = p.new_id("L");
+    map.insert(old.to_string(), link.clone());
+    link
+}
+
+/// The clip's link, creating one if it has none, so another clip can join it.
+fn link_of(p: &mut Project, clip: &str) -> String {
+    if let Some(link) = p.clip(clip).and_then(|c| c.link.clone()) {
+        return link;
+    }
+    let link = p.new_id("L");
+    p.clip_mut(clip).expect("caller checked the clip exists").link = Some(link.clone());
+    link
+}
+
 /// Splits the clip at `at` and returns the id of the new right-hand part.
-fn split_at(p: &mut Project, clip: &str, at: Frame, actor: &str) -> String {
+fn split_at(p: &mut Project, clip: &str, at: Frame, actor: &str, links: &mut BTreeMap<String, String>) -> String {
+    let link = p.clip(clip).and_then(|c| c.link.clone()).map(|old| fresh_link(p, links, &old));
     let id = p.new_id("c");
     let left = p.clip_mut(clip).expect("caller checked the clip exists");
     let mut right = left.clone();
     right.id = id.clone();
+    right.link = link;
     right.start = at;
     right.duration = left.end() - at;
     right.source_in += ((at - left.start) as f64 * left.speed()).round() as Frame;
@@ -313,7 +353,7 @@ pub fn apply(p: &mut Project, cmd: &Command, actor: &str) -> R<Value> {
             Ok(json!({ "removed": media }))
         }
 
-        Command::AddClip { track, start, duration, name, kind, media, source_in, text, template } => {
+        Command::AddClip { track, start, duration, name, kind, media, source_in, text, template, link_to } => {
             let t = unlocked(p, track)?;
             if !kind.fits(t.kind) {
                 return Err(format!("a {kind:?} clip cannot go on {:?} track {track}", t.kind).to_lowercase());
@@ -321,6 +361,10 @@ pub fn apply(p: &mut Project, cmd: &Command, actor: &str) -> R<Value> {
             check_span(*start, *duration)?;
             check_source(p, media, *kind, *source_in, *duration, 1.0)?;
             check_free(p, track, *start, *duration, "")?;
+            if let Some(other) = link_to {
+                p.clip(other).ok_or_else(|| format!("no clip {other} to link with"))?;
+            }
+            let link = link_to.as_ref().map(|other| link_of(p, other));
             let id = p.new_id("c");
             p.sequence.clips.push(Clip {
                 id: id.clone(),
@@ -338,6 +382,7 @@ pub fn apply(p: &mut Project, cmd: &Command, actor: &str) -> R<Value> {
                 transition_in: None,
                 transition_out: None,
                 last_actor: Some(actor.into()),
+                link,
             });
             Ok(json!({ "clip": id }))
         }
@@ -356,43 +401,105 @@ pub fn apply(p: &mut Project, cmd: &Command, actor: &str) -> R<Value> {
             c.last_actor = Some(actor.into());
             Ok(json!({ "clip": clip, "track": target, "start": start }))
         }
-        Command::MoveClips { clips, delta } => {
+        Command::MoveClips { clips, delta, tracks } => {
             if clips.is_empty() {
                 return Err("no clips given".into());
             }
+            if let Some(stray) = tracks.keys().find(|id| !clips.contains(*id)) {
+                return Err(format!("clip {stray} is given a track but is not in the list of clips to move"));
+            }
+            // Where each clip lands: its track, and the frames it covers there.
+            let mut landing: Vec<(String, String, Frame, Frame)> = vec![];
             for id in clips {
                 let c = editable(p, id)?;
-                check_span(c.start + delta, c.duration)?;
-                // The clips travel together, so they only need to clear the ones staying behind.
-                let blocker = p.sequence.clips.iter().find(|o| {
-                    o.track == c.track && !clips.contains(&o.id) && c.start + delta < o.end() && o.start < c.end() + delta
-                });
+                let track = tracks.get(id).cloned().unwrap_or_else(|| c.track.clone());
+                let t = unlocked(p, &track)?;
+                if !c.kind.fits(t.kind) {
+                    return Err(format!("clip {id} cannot go on track {track}"));
+                }
+                let start = c.start + delta;
+                check_span(start, c.duration)?;
+                landing.push((id.clone(), track, start, start + c.duration));
+            }
+            for (i, (id, track, start, end)) in landing.iter().enumerate() {
+                // Clips that stay where they are must not be in the way; moved clips must not collide with each other.
+                let blocker = p
+                    .sequence
+                    .clips
+                    .iter()
+                    .find(|o| o.track == *track && !clips.contains(&o.id) && *start < o.end() && o.start < *end);
                 if let Some(o) = blocker {
                     return Err(format!("{} would overlap clip {} ({}) on track {}", id, o.id, o.name, o.track));
+                }
+                let other = landing.iter().enumerate().find(|(j, l)| *j != i && l.1 == *track && *start < l.3 && l.2 < *end);
+                if let Some((_, l)) = other {
+                    return Err(format!("{} would overlap {} on track {}", id, l.0, track));
                 }
             }
             for c in p.sequence.clips.iter_mut().filter(|c| clips.contains(&c.id)) {
                 c.start += delta;
+                if let Some(track) = tracks.get(&c.id) {
+                    c.track = track.clone();
+                }
                 c.last_actor = Some(actor.into());
             }
-            Ok(json!({ "moved": clips, "delta": delta }))
+            Ok(json!({ "moved": clips, "delta": delta, "tracks": tracks }))
         }
         Command::DuplicateClips { clips, delta } => {
             if clips.is_empty() {
                 return Err("no clips given".into());
             }
             let mut created = vec![];
+            let mut links = BTreeMap::new();
             for id in clips {
                 let mut copy = editable(p, id)?;
                 copy.start += delta;
                 check_span(copy.start, copy.duration)?;
                 check_free(p, &copy.track, copy.start, copy.duration, "")?;
                 copy.id = p.new_id("c");
+                copy.link = copy.link.take().map(|old| fresh_link(p, &mut links, &old));
                 copy.last_actor = Some(actor.into());
                 created.push(copy.id.clone());
                 p.sequence.clips.push(copy);
             }
             Ok(json!({ "created": created }))
+        }
+        Command::Link { clips } => {
+            for id in clips {
+                editable(p, id)?;
+            }
+            let found = p.sequence.clips.iter().filter(|c| clips.contains(&c.id)).count();
+            if found < 2 {
+                return Err("linking needs at least two clips".into());
+            }
+            let link = p.new_id("L");
+            for c in p.sequence.clips.iter_mut().filter(|c| clips.contains(&c.id)) {
+                c.link = Some(link.clone());
+                c.last_actor = Some(actor.into());
+            }
+            Ok(json!({ "linked": clips, "link": link }))
+        }
+        Command::Unlink { clips } => {
+            let mut groups: Vec<String> = vec![];
+            for id in clips {
+                if let Some(link) = editable(p, id)?.link {
+                    if !groups.contains(&link) {
+                        groups.push(link);
+                    }
+                }
+            }
+            // Clips that are not linked at all are fine to leave alone, so this is a no-op rather than an error.
+            let members = |c: &&Clip| c.link.as_ref().is_some_and(|l| groups.contains(l));
+            for c in p.sequence.clips.iter().filter(members) {
+                unlocked(p, &c.track)?;
+            }
+            let mut unlinked = vec![];
+            for c in p.sequence.clips.iter_mut().filter(|c| c.link.as_ref().is_some_and(|l| groups.contains(l))) {
+                c.link = None;
+                c.last_actor = Some(actor.into());
+                unlinked.push(c.id.clone());
+            }
+            Ok(json!({ "unlinked": unlinked }))
         }
         Command::TrimClip { clip, start, duration } => {
             let c = editable(p, clip)?;
@@ -431,7 +538,8 @@ pub fn apply(p: &mut Project, cmd: &Command, actor: &str) -> R<Value> {
             if targets.is_empty() {
                 return Err(format!("no clip to split at frame {at}"));
             }
-            let created: Vec<String> = targets.iter().map(|id| split_at(p, id, *at, actor)).collect();
+            let mut links = BTreeMap::new();
+            let created: Vec<String> = targets.iter().map(|id| split_at(p, id, *at, actor, &mut links)).collect();
             Ok(json!({ "split": targets, "created": created }))
         }
         Command::DeleteClip { clip } => {
@@ -463,8 +571,9 @@ pub fn apply(p: &mut Project, cmd: &Command, actor: &str) -> R<Value> {
                     .filter(|c| open.contains(&c.track) && c.contains_inner(edge))
                     .map(|c| c.id.clone())
                     .collect();
+                let mut links = BTreeMap::new();
                 for id in hit {
-                    split_at(p, &id, edge, actor);
+                    split_at(p, &id, edge, actor, &mut links);
                 }
             }
             let before = p.sequence.clips.len();

@@ -22,6 +22,7 @@ pub fn demo_project() -> Project {
             transition_in: None,
             transition_out: None,
             last_actor: None,
+            link: None,
         });
         p.sequence.clips.len() - 1
     };

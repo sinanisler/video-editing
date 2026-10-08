@@ -5,7 +5,8 @@ use std::collections::BTreeMap;
 /// Timeline time, counted in frames of the sequence frame rate. Never a float.
 pub type Frame = i64;
 
-pub const PROJECT_VERSION: u32 = 1;
+/// Version 2 added explicit clip links. Version 1 files are linked by [`Project::link_legacy_pairs`] when opened.
+pub const PROJECT_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Settings {
@@ -98,6 +99,10 @@ pub struct Clip {
     /// Who changed this clip last: `user` or an agent name.
     #[serde(default)]
     pub last_actor: Option<String>,
+    /// Clips with the same link are one group: selected, copied and deleted together, and moved together in time.
+    /// Changing track does not carry the others along. None means the clip stands alone.
+    #[serde(default)]
+    pub link: Option<String>,
 }
 
 impl Clip {
@@ -229,5 +234,41 @@ impl Project {
     /// End of the last clip.
     pub fn duration(&self) -> Frame {
         self.sequence.clips.iter().map(Clip::end).max().unwrap_or(0)
+    }
+
+    /// Projects before version 2 had no link field. Video and sound from the same file that started and ended
+    /// together were treated as one unit then, so they are linked now. Each clip joins at most one pair.
+    pub fn link_legacy_pairs(&mut self) {
+        if self.version >= 2 {
+            return;
+        }
+        let clips = &self.sequence.clips;
+        let mut taken = vec![false; clips.len()];
+        let mut pairs = vec![];
+        for (i, v) in clips.iter().enumerate() {
+            if v.kind != ClipKind::Video || v.link.is_some() || v.media.is_none() {
+                continue;
+            }
+            let partner = clips.iter().enumerate().find(|(j, a)| {
+                !taken[*j]
+                    && *j != i
+                    && a.kind == ClipKind::Audio
+                    && a.link.is_none()
+                    && a.media == v.media
+                    && a.start == v.start
+                    && a.duration == v.duration
+            });
+            if let Some((j, _)) = partner {
+                taken[i] = true;
+                taken[j] = true;
+                pairs.push((i, j));
+            }
+        }
+        for (i, j) in pairs {
+            let link = self.new_id("L");
+            self.sequence.clips[i].link = Some(link.clone());
+            self.sequence.clips[j].link = Some(link);
+        }
+        self.version = PROJECT_VERSION;
     }
 }

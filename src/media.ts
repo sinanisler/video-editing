@@ -86,9 +86,9 @@ const overlaps = (track: string, start: number, duration: number) =>
   project()?.sequence.clips.find((c) => c.track === track && start < clipEnd(c) && c.start < start + duration);
 
 /**
- * Places a video's sound on the first unlocked audio track that is free for its length, and mutes the video
- * clip. The two steps are separate undo steps: the video clip has to exist before the mute can refer to it.
- * Clips stay independent after this, so moving one does not move the other.
+ * Places a video's sound on the first unlocked audio track that is free for its length, links it to the video
+ * clip, and mutes the video so the sound is not heard twice. The video clip has to exist first, so this runs as a
+ * second undo step. The two stay linked: they select and move in time together, but either can change track alone.
  */
 async function linkAudio(m: MediaItem, clip: string, start: number, duration: number) {
   const p = project();
@@ -96,7 +96,7 @@ async function linkAudio(m: MediaItem, clip: string, start: number, duration: nu
   const track = p.sequence.tracks.find((t) => t.kind === "audio" && !t.locked && !overlaps(t.id, start, duration));
   if (!track) return toast(`No free audio track for the sound of ${m.name}`);
   await execBatch([
-    { tool: "timeline.add_clip", args: { track: track.id, start, duration, name: m.name, kind: "audio", media: m.id } },
+    { tool: "timeline.add_clip", args: { track: track.id, start, duration, name: m.name, kind: "audio", media: m.id, link_to: clip } },
     { tool: "clip.set_property", args: { clip, key: "mute", value: true } },
   ]);
 }

@@ -265,6 +265,7 @@ pub fn catalog() -> Vec<ToolDef> {
                     "duration": frame("Length in frames; 0 for images"),
                     "width": { "type": "integer", "minimum": 0 },
                     "height": { "type": "integer", "minimum": 0 },
+                    "has_audio": { "type": "boolean", "description": "Whether the file has a sound track. Measured for MP4, MOV and M4V; pass it for other formats" },
                 }),
                 &["path"],
             ),
@@ -292,6 +293,7 @@ pub fn catalog() -> Vec<ToolDef> {
                     "source_in": frame("First frame of the media to show; default 0"),
                     "text": text("Text for graphic and caption clips"),
                     "template": { "type": "string", "enum": ["title", "subscribe", "counter", "chapter", "lower"], "description": "Graphic style" },
+                    "link_to": text("Clip id to link the new clip with. Linked clips select and move together in time, for example a video and the sound taken from it"),
                 }),
                 &["track", "start", "duration", "name", "kind"],
             ),
@@ -305,10 +307,30 @@ pub fn catalog() -> Vec<ToolDef> {
         ),
         def(
             "timeline_move_clips",
-            "Shift several clips by the same number of frames (negative moves them earlier), keeping their tracks. \
-             Either all of them move or none does.",
-            obj(json!({ "clips": { "type": "array", "items": { "type": "string" }, "minItems": 1 }, "delta": { "type": "integer", "description": "Frames to shift by" } }), &["clips", "delta"]),
+            "Shift several clips by the same number of frames (negative moves them earlier). Clips keep their tracks \
+             unless tracks names a new one for them; the others stay put. Either all of them move or none does.",
+            obj(
+                json!({
+                    "clips": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+                    "delta": { "type": "integer", "description": "Frames to shift by" },
+                    "tracks": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Map from clip id to the track it moves to, for example {\"c4\": \"V2\"}" },
+                }),
+                &["clips", "delta"],
+            ),
             json!({ "clips": ["c1", "c2"], "delta": 6000 }),
+        ),
+        def(
+            "timeline_link",
+            "Link clips into one group. Linked clips select together, and move together in time when they are \
+             moved along the timeline. Linking replaces any links the clips already had.",
+            obj(json!({ "clips": { "type": "array", "items": { "type": "string" }, "minItems": 2 } }), &["clips"]),
+            json!({ "clips": ["c1", "c2"] }),
+        ),
+        def(
+            "timeline_unlink",
+            "Break the links of the groups these clips belong to, so each clip moves on its own.",
+            obj(json!({ "clips": { "type": "array", "items": { "type": "string" }, "minItems": 1 } }), &["clips"]),
+            json!({ "clips": ["c1"] }),
         ),
         def(
             "timeline_duplicate_clips",

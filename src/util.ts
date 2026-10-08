@@ -61,22 +61,21 @@ export function trackHeight(t: Track, layout: TrackLayout): number {
 const AUDIO_CLASSES = ["k-voice", "k-music", "k-sfx"];
 
 /**
- * The ids plus every clip linked to one of them. A video and the audio clip taken from it are linked while they
- * still start and end together, so they select, move, copy and delete as one.
+ * The ids plus every clip in their link groups, when linked selection is on. A video and the sound taken from it
+ * select, move in time, copy and delete as one. Off, the ids are returned as they are.
  */
-export function linkedIds(clips: Clip[], ids: string[]): string[] {
+export function linkedIds(clips: Clip[], ids: string[], linked = true): string[] {
   const out = new Set(ids);
-  for (const id of ids) {
-    const c = clips.find((x) => x.id === id);
-    if (!c?.media) continue;
-    for (const o of clips) {
-      const sound = (k: Clip["kind"]) => k === "video" || k === "audio";
-      if (o.id !== c.id && o.media === c.media && o.start === c.start && o.duration === c.duration && o.kind !== c.kind && sound(o.kind) && sound(c.kind)) {
-        out.add(o.id);
-      }
-    }
-  }
+  if (!linked) return [...out];
+  const groups = new Set(ids.map((id) => clips.find((c) => c.id === id)?.link).filter((g): g is string => !!g));
+  for (const c of clips) if (c.link && groups.has(c.link)) out.add(c.id);
   return [...out];
+}
+
+/** The clips a cut at frame `at` would split: those the frame falls strictly inside, on tracks that are not locked. */
+export function cutTargets(clips: Clip[], tracks: Track[], at: number): Clip[] {
+  const locked = new Set(tracks.filter((t) => t.locked).map((t) => t.id));
+  return clips.filter((c) => at > c.start && at < clipEnd(c) && !locked.has(c.track));
 }
 
 export function clipClass(c: Clip, tracks: Track[]): string {

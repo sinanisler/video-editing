@@ -51,6 +51,8 @@ export const ui = createStore({
   pps: 9,
   tool: "select" as Tool,
   snap: true,
+  /** When on, selecting one linked clip selects its whole group, as Resolve and Premiere do by default. */
+  linkedSel: true,
   /** Ids of the selected clips. */
   selection: [] as string[],
   leftTab: "media",

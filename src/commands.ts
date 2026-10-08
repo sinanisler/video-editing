@@ -2,7 +2,7 @@ import { confirm, open, save } from "@tauri-apps/plugin-dialog";
 import { importPaths, MEDIA_EXTENSIONS } from "./media";
 import { core, exec, execBatch, openProject, project, redo, saveProject, seek, setPlaying, toast, ui, undo } from "./store";
 import type { Clip } from "./types";
-import { clamp, clipEnd, fpsOf, linkedIds, MAX_PPS, MIN_PPS, timelineFrames } from "./util";
+import { clamp, clipEnd, cutTargets, fpsOf, linkedIds, MAX_PPS, MIN_PPS, timelineFrames } from "./util";
 
 export interface EditorCommand {
   id: string;
@@ -27,9 +27,9 @@ const fps = () => {
 };
 const frame = () => ui.get().frame;
 const allClips = (): Clip[] => project()?.sequence.clips ?? [];
-/** The selected clips that still exist. */
+/** The selected clips that still exist, with their link groups when linked selection is on. */
 const selected = (): Clip[] => {
-  const ids = linkedIds(allClips(), ui.get().selection);
+  const ids = linkedIds(allClips(), ui.get().selection, ui.get().linkedSel);
   return allClips().filter((c) => ids.includes(c.id));
 };
 
@@ -72,11 +72,38 @@ async function saveAs() {
   if (path && (await saveProject(path))) toast("Saved");
 }
 
-/** Cuts `clipId` if given, else the selected clips under `at`, else every clip under `at`. */
+/**
+ * Cuts `clipId` if given, else the selected clips under `at`, else every clip under `at`. A linked clip is cut
+ * together with its group, as the razor does in Resolve and Premiere, so the parts stay in step.
+ */
 export function splitAt(at: number, clipId?: string) {
   const inside = (c: Clip) => at > c.start && at < clipEnd(c);
-  const targets = clipId ? allClips().filter((c) => c.id === clipId && inside(c)) : selected().filter(inside);
+  const group = clipId ? linkedIds(allClips(), [clipId], ui.get().linkedSel) : [];
+  const targets = clipId ? allClips().filter((c) => group.includes(c.id) && inside(c)) : selected().filter(inside);
   return exec("timeline.split_clip", targets.length ? { at, clips: targets.map((c) => c.id) } : { at });
+}
+
+/** The selected clips a cut at `at` would split. A linked clip's group is included, as with every selection action. */
+export const selectedUnder = (at: number): Clip[] => cutTargets(selected(), project()?.sequence.tracks ?? [], at);
+
+/** Splits only the selected clips at `at`. Unlike Ctrl+B, it never cuts unselected clips when none is selected. */
+export function splitSelectedAt(at: number) {
+  const targets = selectedUnder(at);
+  if (!targets.length) return toast("No selected clip under the playhead");
+  return exec("timeline.split_clip", { at, clips: targets.map((c) => c.id) });
+}
+
+/** Links these clips into one group, so they select and move in time together. */
+export const linkClips = (ids: string[]) => exec("timeline.link", { clips: ids });
+/** Breaks the links of the groups these clips belong to. Each clip then moves on its own. */
+export const unlinkClips = (ids: string[]) => exec("timeline.unlink", { clips: ids });
+
+/** Ctrl+L: unlinks the selected clips when any of them is linked, otherwise links the selected clips together. */
+function linkSelection() {
+  const clips = allClips().filter((c) => ui.get().selection.includes(c.id));
+  if (clips.some((c) => c.link)) return unlinkClips(clips.map((c) => c.id));
+  if (clips.length < 2) return toast("Select two or more clips to link them");
+  return linkClips(clips.map((c) => c.id));
 }
 
 function setRange(patch: { in_point?: number | null; out_point?: number | null }) {
@@ -231,6 +258,12 @@ export const COMMANDS: EditorCommand[] = [
   { id: "addvideo", title: "Add video track", run: () => exec("timeline.add_track", { kind: "video" }) },
   { id: "addaudio", title: "Add audio track", run: () => exec("timeline.add_track", { kind: "audio" }) },
 
+  { id: "link", title: "Link or unlink the selected clips", keys: ["Ctrl+L"], run: linkSelection },
+  {
+    id: "linkedsel",
+    title: "Toggle linked selection (selecting one linked clip selects its group)",
+    run: () => ui.set({ linkedSel: !ui.get().linkedSel }),
+  },
   { id: "snap", title: "Toggle snapping", keys: ["N"], run: () => ui.set({ snap: !ui.get().snap }) },
   { id: "pace", title: "Toggle pace lane", run: () => ui.set({ showPace: !ui.get().showPace }) },
   { id: "zoomin", title: "Zoom in", keys: ["+", "="], run: () => ui.set({ pps: clamp(ui.get().pps * 1.3, MIN_PPS, MAX_PPS) }) },

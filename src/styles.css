@@ -188,6 +188,10 @@ h4:first-child { margin-top: 0; }
 #tl.razor .clip { cursor: crosshair; }
 #playhead { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--accent); z-index: 5; pointer-events: none; }
 #playhead::before { content: ""; position: absolute; left: -6px; top: 0; width: 13px; height: 13px; background: var(--accent); clip-path: polygon(0 0, 100% 0, 100% 55%, 50% 100%, 0 55%); }
+/* The knob is the grab point for the playhead and its right-click menu. The line itself lets clicks through to the clips. */
+#playhead::before, #playhead::after { pointer-events: auto; cursor: col-resize; }
+/* A transparent area a little larger than the knob, because the drawn knob is small to hit. */
+#playhead::after { content: ""; position: absolute; left: -9px; top: 0; width: 19px; height: 24px; }
 #marquee { position: absolute; z-index: 6; border: 1px solid var(--accent); background: #f5b83d22; pointer-events: none; }
 #snapline { position: absolute; top: 28px; bottom: 0; width: 1px; background: #fff; z-index: 4; pointer-events: none; }
 /* Razor preview: where the next click cuts. */

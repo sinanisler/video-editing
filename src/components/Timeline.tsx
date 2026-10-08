@@ -1,6 +1,8 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { runCommand, splitAt, timelineApi } from "../commands";
+import { runCommand, selectedUnder, splitAt, splitSelectedAt, timelineApi } from "../commands";
 import { core, exec, seek, toast, ui } from "../store";
+import type { MenuItem } from "../store";
+import { openMenu } from "./ContextMenu";
 import type { Clip, Sequence } from "../types";
 import { clamp, clipClass, clipEnd, fits, fpsOf, linkedIds, MAX_PPS, MIN_PPS, mmss, timecode, timelineFrames, trackHeight } from "../util";
 import { openTrackMenu, Splitter, SPLITTER_PX, TrackHead } from "./Tracks";
@@ -80,7 +82,22 @@ type Drag =
       ghosts: Ghosts;
     };
 
-function Playhead({ ppf, scroller }: { ppf: number; scroller: React.RefObject<HTMLDivElement | null> }) {
+/** Right-click menu on the playhead's knob. Its commands act on the frame the playhead is at. */
+function playheadMenu(at: number): MenuItem[] {
+  const n = selectedUnder(at).length;
+  return [
+    {
+      label: n > 1 ? `Split ${n} selected clips here` : "Split selected clip here",
+      disabled: n === 0,
+      action: () => splitSelectedAt(at),
+    },
+    { label: "Split all unlocked tracks here", hint: "Ctrl+Shift+B", action: () => exec("timeline.split_clip", { at }) },
+    "sep",
+    { label: "Add marker here", hint: "M", action: () => exec("timeline.add_marker", { at, label: "Marker" }) },
+  ];
+}
+
+function Playhead({ ppf, scroller, onGrab }: { ppf: number; scroller: React.RefObject<HTMLDivElement | null>; onGrab: (e: React.PointerEvent) => void }) {
   const frame = ui.use((s) => s.frame);
   const playing = ui.use((s) => s.playing);
   const x = frame * ppf;
@@ -89,12 +106,28 @@ function Playhead({ ppf, scroller }: { ppf: number; scroller: React.RefObject<HT
     if (!el || !playing) return;
     if (x < el.scrollLeft || x > el.scrollLeft + el.clientWidth - 40) el.scrollLeft = x - el.clientWidth / 4;
   }, [x, playing, scroller]);
-  return <div id="playhead" style={{ left: x }} />;
+  return (
+    <div
+      id="playhead"
+      style={{ left: x }}
+      data-tip="Drag the knob to move the playhead. Right-click it for split and marker commands at this frame."
+      onPointerDown={(e) => {
+        // Only the left button moves the playhead; a right-click should leave it where it is for the menu.
+        if (e.button === 0) onGrab(e);
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openMenu(e.clientX, e.clientY, playheadMenu(frame));
+      }}
+    />
+  );
 }
 
 function Toolbar({ selected, fps }: { selected: Clip[]; fps: number }) {
   const tool = ui.use((s) => s.tool);
   const snap = ui.use((s) => s.snap);
+  const linkedSel = ui.use((s) => s.linkedSel);
   const pps = ui.use((s) => s.pps);
   const showPace = ui.use((s) => s.showPace);
   const one = selected.length === 1 ? selected[0] : null;
@@ -114,6 +147,13 @@ function Toolbar({ selected, fps }: { selected: Clip[]; fps: number }) {
       <button data-tip="Add marker (M)" onClick={() => runCommand("marker")}>◆ Marker</button>
       <span className="sep" />
       <button className={snap ? "on" : ""} data-tip="Snapping (N)" onClick={() => runCommand("snap")}>⌁ Snap</button>
+      <button
+        className={linkedSel ? "on" : ""}
+        data-tip="Linked selection: selecting one linked clip selects its group. Off, every click takes one clip. Ctrl+L links or unlinks."
+        onClick={() => runCommand("linkedsel")}
+      >
+        ⛓ Linked
+      </button>
       <button
         className={showPace ? "on" : ""}
         data-tip="Pace lane: cuts per 10 seconds on the lowest video track"
@@ -178,6 +218,7 @@ export function Timeline() {
   const pps = ui.use((s) => s.pps);
   const tool = ui.use((s) => s.tool);
   const snap = ui.use((s) => s.snap);
+  const linkedSel = ui.use((s) => s.linkedSel);
   const selection = ui.use((s) => s.selection);
   const showPace = ui.use((s) => s.showPace);
   const videoH = ui.use((s) => s.videoH);
@@ -207,8 +248,8 @@ export function Timeline() {
   const [cutFrame, setCutFrame] = useState<number | null>(null);
 
   // Window-level pointer handlers read the latest values from here.
-  const live = useRef({ seq, ppf, total, snap, fps });
-  live.current = { seq, ppf, total, snap, fps };
+  const live = useRef({ seq, ppf, total, snap, fps, linkedSel });
+  live.current = { seq, ppf, total, snap, fps, linkedSel };
 
   const frameAt = (clientX: number) => {
     const { ppf, total } = live.current;
@@ -300,7 +341,9 @@ export function Timeline() {
             return q.left < r && q.right > l && q.top < b && q.bottom > t;
           })
           .map((c) => c.dataset.id!);
-        ui.set({ selection: [...new Set([...d.additive, ...hit])] });
+        // Clips in a link group are selected together, as a click on one of them would select them.
+        const { seq: now, linkedSel: linked } = live.current;
+        ui.set({ selection: linkedIds(now.clips, [...new Set([...d.additive, ...hit])], linked) });
         return;
       }
 
@@ -320,8 +363,10 @@ export function Timeline() {
         else if (tail !== null) delta = (snapped = tail) - clipEnd(lead);
         delta = Math.max(delta, -Math.min(...d.group.map((c) => c.start)));
         for (const c of d.group) next[c.id] = { start: c.start + delta, duration: c.duration, track: c.track };
-        // A single clip can also change track; a group keeps its layout.
-        if (d.group.length === 1) {
+        // The clip under the pointer can change track while its link partners stay where they are, so a video can
+        // go up while its sound stays put. A group of unrelated clips keeps its layout.
+        const linkedOnly = d.group.every((c) => c.id === lead.id || (lead.link !== null && c.link === lead.link));
+        if (linkedOnly) {
           const lane = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest<HTMLElement>(
             "[data-track]",
           );
@@ -361,12 +406,14 @@ export function Timeline() {
         return;
       }
       const g = d.ghosts[d.lead.id];
+      // Only the clips that changed track are listed; the rest of the group keeps its tracks.
+      const tracks = Object.fromEntries(d.group.filter((c) => d.ghosts[c.id]?.track !== c.track).map((c) => [c.id, d.ghosts[c.id].track]));
       const done =
         d.mode !== "move"
           ? exec("timeline.trim_clip", { clip: d.lead.id, start: g.start, duration: g.duration })
           : d.group.length === 1
             ? exec("timeline.move_clip", { clip: d.lead.id, start: g.start, track: g.track })
-            : exec("timeline.move_clips", { clips: d.group.map((c) => c.id), delta: d.delta });
+            : exec("timeline.move_clips", { clips: d.group.map((c) => c.id), delta: d.delta, tracks });
       // Keep the ghosts until the core answers, so the clips do not jump back for a frame.
       done.finally(() => setGhosts({}));
     };
@@ -403,13 +450,15 @@ export function Timeline() {
     }
     const at = frameAt(e.clientX);
     if (extend) {
-      // Ctrl or Shift click adds the clip to the selection, or takes it out.
-      ui.set({ selection: selection.includes(c.id) ? selection.filter((id) => id !== c.id) : [...selection, c.id] });
+      // Ctrl or Shift click adds the clip's group to the selection, or takes it out.
+      const group = linkedIds(seq.clips, [c.id], linkedSel);
+      const taken = selection.includes(c.id);
+      ui.set({ selection: taken ? selection.filter((id) => !group.includes(id)) : [...new Set([...selection, ...group])] });
       return;
     }
     const mode = target.classList.contains("hl") ? "trimL" : target.classList.contains("hr") ? "trimR" : "move";
     const keepGroup = mode === "move" && selection.includes(c.id) && selection.length > 1;
-    const ids = linkedIds(seq.clips, keepGroup ? selection : [c.id]);
+    const ids = linkedIds(seq.clips, keepGroup ? selection : [c.id], linkedSel);
     if (!keepGroup) ui.set({ selection: ids, rightTab: "inspector" });
     const locked = (id: string) => seq.tracks.find((t) => t.id === id)?.locked;
     if (locked(c.track)) return toast(`Track ${c.track} is locked`);
@@ -563,6 +612,7 @@ export function Timeline() {
                             {(c.kind === "graphic" || c.kind === "caption") && c.text ? c.text : c.name}
                           </span>
                           <span className="bd">
+                            {c.link && <i className="lk">⛓</i>}
                             {c.effects.length > 0 && <i>fx {c.effects.length}</i>}
                             {byAgent && <i className="ag">✦</i>}
                           </span>
@@ -581,7 +631,7 @@ export function Timeline() {
             {tool === "razor" && cutFrame !== null && (
               <div className="cutline" style={{ left: cutFrame * ppf }} data-label={timecode(cutFrame, fps)} />
             )}
-            <Playhead ppf={ppf} scroller={scroller} />
+            <Playhead ppf={ppf} scroller={scroller} onGrab={onRulerDown} />
           </div>
         </div>
       </div>

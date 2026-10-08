@@ -178,7 +178,7 @@ impl Editor {
     pub fn open(&mut self, path: &Path) -> Result<String, String> {
         let text =
             std::fs::read_to_string(path).map_err(|e| format!("could not read {}: {e}", path.display()))?;
-        let project: Project =
+        let mut project: Project =
             serde_json::from_str(&text).map_err(|e| format!("{} is not a valid project: {e}", path.display()))?;
         if project.version > PROJECT_VERSION {
             return Err(format!(
@@ -186,6 +186,7 @@ impl Editor {
                 project.version
             ));
         }
+        project.link_legacy_pairs();
         self.project = project;
         self.undo.clear();
         self.redo.clear();
