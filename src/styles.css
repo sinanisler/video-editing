@@ -339,7 +339,3 @@ button.wide { width: 100%; padding: 7px; margin-bottom: 10px; }
 .filmstrip { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
 .filmstrip img { position: absolute; top: 0; height: 100%; object-fit: cover; opacity: .9; }
 
-/* Frame preview above the playhead: the picture at the playhead, from the top-most video clip there. */
-.phprev { position: absolute; top: 32px; transform: translateX(-50%); z-index: 7; pointer-events: none; background: #000; border: 1px solid var(--accent); border-radius: 3px; padding: 1px; }
-.phprev img { display: block; }
-.phprev span { display: block; font: 13px Consolas, monospace; color: var(--accent); text-align: center; line-height: 16px; }
