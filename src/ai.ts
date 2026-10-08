@@ -51,6 +51,9 @@ export interface SpeechCue {
   text: string;
 }
 
+/** The models the app starts with. Same ids as DEFAULT_CHAT_MODEL and DEFAULT_SUBTITLE_MODEL in src-tauri/src/ai.rs; change both. */
+export const DEFAULT_MODELS = { agent_model: "~anthropic/claude-haiku-latest", whisper_model: "openai/whisper-large-v3" } as const;
+
 export const aiState = () => invoke<AiState>("ai_state");
 export const aiSetKey = (key: string) => invoke<void>("ai_set_key", { key });
 export const aiClearKey = () => invoke<void>("ai_clear_key");

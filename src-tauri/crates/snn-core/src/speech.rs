@@ -1,13 +1,15 @@
-//! Sound for speech recognition: which sound tracks and channels a file has, a small mono MP3 of one channel of one
-//! stretch of it, and the lines a transcription service returns. Only the sound is decoded, so the picture is never read
-//! and the file is never sent whole.
+//! Sound for speech recognition: which sound tracks and channels a file has, the sound of one channel of a stretch of it
+//! encoded as small mono MP3 parts on disk, and the lines a transcription service returns. Only the sound is decoded, so
+//! the picture is never read.
 
 use crate::analysis::{failure, run};
 use serde::Serialize;
 use serde_json::Value;
+use std::path::{Path, PathBuf};
 
-/// How long each part of the sound is, in seconds. Upstream providers time out after 60 seconds per request.
-pub const CHUNK_SECONDS: f64 = 60.0;
+/// How long each part of the sound is, in seconds. The subtitle model takes parts of up to ten minutes; each part is
+/// encoded before any of them is sent.
+pub const PART_SECONDS: f64 = 600.0;
 
 /// One sound track of a file, as FFmpeg lists it.
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -82,22 +84,51 @@ fn channel_names(channels: usize) -> Vec<String> {
     }
 }
 
-/// The parts the sound from `from` to `to` (seconds) is cut into: (start, length) pairs of at most [`CHUNK_SECONDS`].
-pub fn chunk_spans(from: f64, to: f64) -> Vec<(f64, f64)> {
+/// The parts the sound from `from` to `to` (seconds) is cut into: (start, length) pairs of at most `part` seconds.
+pub fn chunk_spans(from: f64, to: f64, part: f64) -> Vec<(f64, f64)> {
     let mut spans = vec![];
     let mut start = from;
     while start < to {
-        let length = (to - start).min(CHUNK_SECONDS);
+        let length = (to - start).min(part);
         spans.push((start, length));
         start += length;
     }
     spans
 }
 
-/// A mono MP3 of one stretch of one sound track: 16 kHz and 32 kbit/s, enough for speech and small enough to send.
-/// `channel` picks one channel of the track; None mixes all of them down to mono. The picture is not decoded.
-pub fn speech_audio(path: &str, start: f64, length: f64, track: usize, channel: Option<usize>) -> Result<Vec<u8>, String> {
+/// Encodes the sound from `from` to `to` (seconds) of one sound track as mono MP3 parts of at most `part` seconds, written
+/// into `dir`. Every part is encoded before any is sent, so this runs to the end before the caller starts sending.
+/// Each part is a 16 kHz, 32 kbit/s file: enough for speech and small enough to send. `channel` picks one channel of the
+/// track; None mixes all of them down to mono. The picture is not decoded.
+///
+/// Returns each part's start in seconds from the start of the file, and the file's path, in order. `progress` is called
+/// after each part with (parts done, parts in all).
+pub fn encode_speech(
+    path: &str,
+    from: f64,
+    to: f64,
+    track: usize,
+    channel: Option<usize>,
+    dir: &Path,
+    part: f64,
+    mut progress: impl FnMut(usize, usize),
+) -> Result<Vec<(f64, PathBuf)>, String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("could not make a folder for the audio: {e}"))?;
+    let spans = chunk_spans(from, to, part);
+    let mut parts = Vec::with_capacity(spans.len());
+    for (i, (start, length)) in spans.iter().enumerate() {
+        let file = dir.join(format!("part-{i:03}.mp3"));
+        encode_part(path, *start, *length, track, channel, &file)?;
+        parts.push((*start, file));
+        progress(i + 1, spans.len());
+    }
+    Ok(parts)
+}
+
+/// One part: `length` seconds from `start`, on the same terms as [`encode_speech`].
+fn encode_part(path: &str, start: f64, length: f64, track: usize, channel: Option<usize>, file: &Path) -> Result<(), String> {
     let mut args: Vec<String> = vec![
+        "-y".into(),
         "-ss".into(),
         format!("{start:.3}"),
         "-t".into(),
@@ -111,12 +142,14 @@ pub fn speech_audio(path: &str, start: f64, length: f64, track: usize, channel: 
     if let Some(channel) = channel {
         args.extend(["-af".into(), format!("pan=mono|c0=c{channel}")]);
     }
-    args.extend(["-ac", "1", "-ar", "16000", "-c:a", "libmp3lame", "-b:a", "32k", "-f", "mp3", "pipe:1"].map(String::from));
+    args.extend(["-ac", "1", "-ar", "16000", "-c:a", "libmp3lame", "-b:a", "32k", "-f", "mp3"].map(String::from));
+    args.push(file.display().to_string());
     let out = run(args)?;
-    if !out.status.success() || out.stdout.is_empty() {
+    let written = std::fs::metadata(file).map(|m| m.len() > 0).unwrap_or(false);
+    if !out.status.success() || !written {
         return Err(failure(&out));
     }
-    Ok(out.stdout)
+    Ok(())
 }
 
 /// Reads a `verbose_json` transcript. `offset` is where the audio it came from starts in the file, so the times line up.
@@ -167,10 +200,49 @@ mod tests {
     }
 
     #[test]
-    fn the_sound_is_cut_into_parts_of_at_most_a_minute() {
-        assert_eq!(chunk_spans(0.0, 150.0), vec![(0.0, 60.0), (60.0, 60.0), (120.0, 30.0)]);
-        assert_eq!(chunk_spans(10.0, 20.0), vec![(10.0, 10.0)]);
-        assert!(chunk_spans(5.0, 5.0).is_empty());
+    fn the_sound_is_cut_into_parts_of_at_most_the_part_length() {
+        assert_eq!(chunk_spans(0.0, 1500.0, PART_SECONDS), vec![(0.0, 600.0), (600.0, 600.0), (1200.0, 300.0)]);
+        assert_eq!(chunk_spans(0.0, 25.0, 10.0), vec![(0.0, 10.0), (10.0, 10.0), (20.0, 5.0)]);
+        assert_eq!(chunk_spans(10.0, 20.0, PART_SECONDS), vec![(10.0, 10.0)]);
+        assert!(chunk_spans(5.0, 5.0, PART_SECONDS).is_empty());
+    }
+
+    #[test]
+    fn parts_are_encoded_in_order_and_each_is_timed_from_its_start() {
+        if !ffmpeg_works() {
+            eprintln!("skipped: FFmpeg is not installed");
+            return;
+        }
+        let path = two_track_file("parts");
+        let dir = std::env::temp_dir().join(format!("snn-speech-parts-{}", std::process::id()));
+        // Three seconds of sound in one-second parts.
+        let parts = encode_speech(&path.display().to_string(), 0.0, 3.0, 0, None, &dir, 1.0, |_, _| {});
+        std::fs::remove_file(&path).ok();
+        let parts = parts.unwrap();
+        let starts: Vec<f64> = parts.iter().map(|(start, _)| *start).collect();
+        assert_eq!(starts, vec![0.0, 1.0, 2.0]);
+        for (_, file) in &parts {
+            assert!(std::fs::metadata(file).unwrap().len() > 0, "{} is empty", file.display());
+        }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Writes a short MP4 with two sound tracks: track 0 is stereo with a tone on the right only, track 1 is mono with a
+    /// second tone. Three seconds long. `tag` names the file, so tests running at the same time do not share one.
+    fn two_track_file(tag: &str) -> PathBuf {
+        let path: PathBuf = std::env::temp_dir().join(format!("snn-speech-{tag}-{}.mp4", std::process::id()));
+        let made = run(
+            [
+                "-y", "-f", "lavfi", "-i", "sine=frequency=880:duration=3", "-f", "lavfi", "-i", "sine=frequency=220:duration=3",
+                "-filter_complex", "[0:a]pan=stereo|c0=0*c0|c1=c0[left]", "-map", "[left]", "-map", "1:a", "-c:a", "aac",
+                &path.display().to_string(),
+            ]
+            .map(String::from)
+            .into(),
+        )
+        .unwrap();
+        assert!(made.status.success(), "{}", failure(&made));
+        path
     }
 
     #[test]
@@ -222,27 +294,22 @@ mod tests {
             eprintln!("skipped: FFmpeg is not installed");
             return;
         }
-        // Track 0 is stereo with a tone on the right only. Track 1 is mono with a second tone.
-        let path: PathBuf = std::env::temp_dir().join(format!("snn-speech-{}.mp4", std::process::id()));
-        let made = run(
-            [
-                "-y", "-f", "lavfi", "-i", "sine=frequency=880:duration=3", "-f", "lavfi", "-i", "sine=frequency=220:duration=3",
-                "-filter_complex", "[0:a]pan=stereo|c0=0*c0|c1=c0[left]", "-map", "[left]", "-map", "1:a", "-c:a", "aac",
-                &path.display().to_string(),
-            ]
-            .map(String::from)
-            .into(),
-        )
-        .unwrap();
-        assert!(made.status.success(), "{}", failure(&made));
+        let path = two_track_file("channels");
         let file = path.display().to_string();
         let streams = audio_streams(&file).unwrap();
         assert_eq!(streams.iter().map(|s| s.channels).collect::<Vec<_>>(), vec![2, 1]);
 
-        let left = mean_db(&speech_audio(&file, 0.0, 2.0, 0, Some(0)).unwrap());
-        let right = mean_db(&speech_audio(&file, 0.0, 2.0, 0, Some(1)).unwrap());
-        let mixed = mean_db(&speech_audio(&file, 0.0, 2.0, 0, None).unwrap());
-        let second_track = mean_db(&speech_audio(&file, 0.0, 2.0, 1, None).unwrap());
+        let dir = std::env::temp_dir().join(format!("snn-speech-channels-{}", std::process::id()));
+        // Encodes two seconds of one channel or track and measures what came out.
+        let measure = |track: usize, channel: Option<usize>| {
+            let parts = encode_speech(&file, 0.0, 2.0, track, channel, &dir, PART_SECONDS, |_, _| {}).unwrap();
+            mean_db(&std::fs::read(&parts[0].1).unwrap())
+        };
+        let left = measure(0, Some(0));
+        let right = measure(0, Some(1));
+        let mixed = measure(0, None);
+        let second_track = measure(1, None);
+        std::fs::remove_dir_all(&dir).ok();
         std::fs::remove_file(&path).ok();
         assert!(left < -60.0, "the left channel is silent, measured {left} dB");
         assert!(right > -30.0, "the right channel carries the tone, measured {right} dB");

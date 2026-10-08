@@ -96,7 +96,7 @@ export function App() {
       <TopBar />
       <div id="main" style={{ gridTemplateColumns: `${leftW}px 1fr ${rightW}px` }}>
         <i className="pgrip v" data-tip="Drag to make the media panel wider or narrower. Double-click to reset." style={{ left: leftW - 3 }} onPointerDown={(e) => startPanelResize(e, "leftW", 1)} onDoubleClick={() => ui.set({ leftW: 330 })} />
-        <i className="pgrip v" data-tip="Drag to make the inspector wider or narrower. Double-click to reset." style={{ left: rightW - 3 }} onPointerDown={(e) => startPanelResize(e, "rightW", -1)} onDoubleClick={() => ui.set({ rightW: 370 })} />
+        <i className="pgrip v" data-tip="Drag to make the inspector wider or narrower. Double-click to reset." style={{ right: rightW - 3 }} onPointerDown={(e) => startPanelResize(e, "rightW", -1)} onDoubleClick={() => ui.set({ rightW: 370 })} />
         <LeftPanel />
         <Preview />
         <RightPanel />

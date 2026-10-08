@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { aiChat, aiClearKey, aiModels, aiSetKey, aiSetModel, aiState, perMillion } from "../ai";
+import { aiChat, aiClearKey, aiModels, aiSetKey, aiSetModel, aiState, DEFAULT_MODELS } from "../ai";
 import type { AiModel, AiState, ChatMessage } from "../ai";
 import { reader } from "../look";
 import { commitProps as commit, core, exec, previewProps as preview, toast, ui } from "../store";
 import type { AiSub } from "../store";
 import type { Clip, LogEntry, MediaItem, PropDef, Track, Transition } from "../types";
 import { clamp, fpsOf, timecode } from "../util";
-import { CaptionTab } from "./CaptionTab";
+import { SubtitlesTab } from "./SubtitlesTab";
+import { ModelPicker } from "./ModelPicker";
 import { Tabs } from "./Tabs";
 
 const decimals = (step: number) => (step >= 1 ? 0 : step >= 0.1 ? 1 : 2);
@@ -369,7 +370,7 @@ function LogLine({ e }: { e: LogEntry }) {
 
 const AI_TABS: [string, string, string][] = [
   ["chat", "Chat", "Give the AI model orders. It edits the project with the same tools the MCP server offers"],
-  ["settings", "AI Settings", "The OpenRouter key, the chat model, and the model that writes captions from sound"],
+  ["settings", "AI Settings", "The OpenRouter key, the chat model, and the model that writes subtitles from sound"],
   ["connect", "Connect MCP", "Connect an outside agent such as Claude Code, and see what agents changed"],
 ];
 
@@ -481,7 +482,6 @@ function Models() {
   const [state, setState] = useState<AiState | null>(null);
   const [models, setModels] = useState<AiModel[] | null>(null);
   const [key, setKey] = useState("");
-  const [search, setSearch] = useState("");
   const [toolsOnly, setToolsOnly] = useState(true);
   const [error, setError] = useState("");
   const [loadFailed, setLoadFailed] = useState(false);
@@ -531,12 +531,9 @@ function Models() {
       setError(String(e));
     }
   };
-  const query = search.trim().toLowerCase();
-  const matches = (m: AiModel) => !query || m.id.toLowerCase().includes(query) || m.name.toLowerCase().includes(query);
-  // The chat writes text, so only models with text output are offered. Every matching model is listed; search narrows them.
-  const chatModels = (models ?? []).filter((m) => m.output.includes("text") && (!toolsOnly || m.tools) && matches(m));
-  const subtitleModels = (models ?? []).filter((m) => m.output.includes("transcription") && matches(m));
-  const noModels = loadFailed ? "The model list could not be loaded. The message below says why." : "No models match.";
+  // The chat writes text, so only models with text output are offered.
+  const chatOptions = (models ?? []).filter((m) => m.output.includes("text") && (!toolsOnly || m.tools));
+  const subtitleOptions = (models ?? []).filter((m) => m.output.includes("transcription"));
   return (
     <>
       <div className="card">
@@ -564,63 +561,37 @@ function Models() {
       </div>
       <div className="card">
         <b>Chat model</b>
-        <p className="hint">{state?.agent_model ? `Chosen: ${state.agent_model}` : "Pick a model. Only models that can use tools can edit the project."}</p>
-        <div className="line">
-          <input placeholder="Search models" value={search} data-tip="Filter the list by name or id" onChange={(e) => setSearch(e.target.value)} />
-        </div>
+        <p className="hint">Search OpenRouter's models, or pick one from the list. Only models that can use tools can edit the project.</p>
+        <ModelPicker
+          known={models}
+          options={chatOptions}
+          chosen={state?.agent_model ?? null}
+          defaultId={DEFAULT_MODELS.agent_model}
+          failed={loadFailed}
+          tip="The model the chat uses. Type to search; pick from the list to choose it."
+          onChoose={(id) => void choose("agent", id)}
+        />
         <label className="hint">
           <input type="checkbox" checked={toolsOnly} onChange={(e) => setToolsOnly(e.target.checked)} /> Only models that can use tools
         </label>
-        <ModelList models={chatModels} chosen={state?.agent_model ?? null} loading={models === null} empty={noModels} onPick={(id) => void choose("agent", id)} />
       </div>
       <div className="card">
         <b>Auto to subtitle</b>
         <p className="hint">
-          The speech-to-text model that writes captions from a clip's sound. The Caption tab uses it; only the sound is sent, not the picture.
+          The speech-to-text model that writes subtitles from a clip's sound. The Subtitles tab uses it; only the sound is sent, not the picture.
         </p>
-        <ModelList
-          models={subtitleModels}
+        <ModelPicker
+          known={models}
+          options={subtitleOptions}
           chosen={state?.whisper_model ?? null}
-          loading={models === null}
-          empty={loadFailed ? noModels : "OpenRouter lists no speech-to-text models right now."}
-          onPick={(id) => void choose("whisper", id)}
+          defaultId={DEFAULT_MODELS.whisper_model}
+          failed={loadFailed}
+          tip="The speech-to-text model for subtitles. Type to search; pick from the list to choose it."
+          onChoose={(id) => void choose("whisper", id)}
         />
       </div>
       {error && <p className="hint err">{error}</p>}
     </>
-  );
-}
-
-function ModelList({
-  models,
-  chosen,
-  loading,
-  empty = "No models match.",
-  onPick,
-}: {
-  models: AiModel[];
-  chosen: string | null;
-  loading: boolean;
-  empty?: string;
-  onPick: (id: string) => void;
-}) {
-  if (loading) return <p className="hint">Loading models from OpenRouter…</p>;
-  if (models.length === 0) return <p className="hint">{empty}</p>;
-  return (
-    <div className="modellist">
-      {models.map((m) => {
-        // Speech-to-text is billed by the length of the audio, so a per-token price would mislead.
-        const price = m.output.includes("transcription") ? "priced by audio length" : perMillion(m.prompt_price);
-        return (
-          <button key={m.id} className={`modelrow ${m.id === chosen ? "on" : ""}`} data-tip={m.id} onClick={() => onPick(m.id)}>
-            <span>{m.name}</span>
-            <small>
-              {m.id} · {m.context_length ? `${Math.round(m.context_length / 1000)}k context` : "context unknown"} · {price}
-            </small>
-          </button>
-        );
-      })}
-    </div>
   );
 }
 
@@ -674,13 +645,13 @@ export function RightPanel() {
         onChange={(rightTab) => ui.set(rightTab === "agent" ? { rightTab, aiTab: "chat" } : { rightTab })}
         tabs={[
           ["inspector", "Inspector", "Properties of the selected clip"],
-          ["caption", "Caption", "Write captions from the sound of the selected clip"],
+          ["subtitles", "Subtitles", "Write subtitles from the sound of the selected clip"],
           ["agent", "AI", "Chat with an AI model that edits the project, and choose its models"],
         ]}
       />
       <div className="pane">
         {tab === "inspector" && <Inspector />}
-        {tab === "caption" && <CaptionTab />}
+        {tab === "subtitles" && <SubtitlesTab />}
         {tab === "agent" && <AiTab />}
       </div>
     </div>

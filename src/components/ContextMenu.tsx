@@ -49,8 +49,8 @@ export function ContextMenu() {
         if ("swatches" in item) {
           return (
             <div key={i} className="mrow">
-              <span className="mlabel">{item.label}</span>
-              <span className="swatches">
+              {/* The swatches name themselves, so the row carries no text label. */}
+              <span className="swatches" role="group" aria-label={item.label}>
                 {item.swatches.map((c, j) => (
                   <i
                     key={j}

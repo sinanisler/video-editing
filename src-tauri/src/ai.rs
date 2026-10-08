@@ -172,9 +172,9 @@ pub async fn ai_models() -> Result<Value, String> {
     .map_err(|e| e.to_string())?
 }
 
-/// Writes captions for part of a media file. The sound of one track, or one channel of it, is cut into short MP3s and each
-/// is sent to the subtitle model. Returns the lines with the seconds they are heard, from the start of the file.
-/// Nothing is written to the project here; the window adds the captions as one undo step.
+/// Makes subtitles for part of a media file. The sound of one track, or one channel of it, is encoded to small MP3 parts
+/// first; then each part is sent to the subtitle model. Returns the lines with the seconds they are heard, from the start
+/// of the file. Nothing is written to the project here; the window adds the subtitles as one undo step.
 #[tauri::command]
 pub async fn ai_transcribe(app: AppHandle, core: State<'_, Core>, media: String, track: usize, channel: Option<usize>, from: f64, to: f64) -> Result<Vec<snn_core::SpeechCue>, String> {
     // The editor is not held while the sound is cut and sent, so the timeline stays usable meanwhile.
@@ -199,14 +199,36 @@ fn transcription_request(model: &str, mp3: &[u8]) -> Value {
     })
 }
 
+/// Removes a folder when it goes out of scope, so encoded audio never outlives the subtitles it was made for.
+struct Cleanup(PathBuf);
+
+impl Drop for Cleanup {
+    fn drop(&mut self) {
+        std::fs::remove_dir_all(&self.0).ok();
+    }
+}
+
+/// A folder name no other run is using: the process and the time.
+fn run_folder() -> String {
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    format!("{}-{nanos}", std::process::id())
+}
+
+/// Encodes the sound first, every part of it, and only then sends the parts one at a time. Progress is reported as
+/// "encoding" (parts finished) and "sending" (the part going out, counted from 1).
 fn transcribe(app: &AppHandle, key: &str, model: &str, path: &str, track: usize, channel: Option<usize>, from: f64, to: f64) -> Result<Vec<snn_core::SpeechCue>, String> {
-    let spans = snn_core::chunk_spans(from, to);
-    if spans.is_empty() {
-        return Err("the clip has no sound to caption".into());
+    let dir = app.path().app_cache_dir().map_err(|e| e.to_string())?.join("subtitles").join(run_folder());
+    let _cleanup = Cleanup(dir.clone());
+    let parts = snn_core::encode_speech(path, from, to, track, channel, &dir, snn_core::PART_SECONDS, |done, total| {
+        app.emit("subtitles:progress", json!({ "stage": "encoding", "done": done, "total": total })).ok();
+    })?;
+    if parts.is_empty() {
+        return Err("the clip has no sound to make subtitles from".into());
     }
     let mut lines = vec![];
-    for (done, (start, length)) in spans.iter().enumerate() {
-        let mp3 = snn_core::speech_audio(path, *start, *length, track, channel)?;
+    for (i, (offset, file)) in parts.iter().enumerate() {
+        let mp3 = std::fs::read(file).map_err(|e| format!("could not read the encoded audio: {e}"))?;
+        app.emit("subtitles:progress", json!({ "stage": "sending", "done": i + 1, "total": parts.len() })).ok();
         let answer: Value = ureq::post(&format!("{API}/audio/transcriptions"))
             .set("Authorization", &format!("Bearer {key}"))
             .set("X-Title", TITLE)
@@ -215,8 +237,7 @@ fn transcribe(app: &AppHandle, key: &str, model: &str, path: &str, track: usize,
             .map_err(describe)?
             .into_json()
             .map_err(|e| format!("OpenRouter's answer could not be read: {e}"))?;
-        lines.extend(snn_core::parse_speech(&answer, *start)?);
-        app.emit("captions:progress", json!({ "done": done + 1, "total": spans.len() })).ok();
+        lines.extend(snn_core::parse_speech(&answer, *offset)?);
     }
     Ok(lines)
 }

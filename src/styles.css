@@ -313,10 +313,13 @@ button.wide { width: 100%; padding: 7px; margin-bottom: 10px; }
 .chatmsg.error { color: #ff7b72; }
 .chatinput { display: flex; gap: 6px; margin-top: 8px; align-items: stretch; }
 .chatinput textarea { flex: 1; resize: vertical; }
-.modellist { display: flex; flex-direction: column; gap: 4px; max-height: 34vh; overflow: auto; margin-top: 6px; }
-.modelrow { display: flex; flex-direction: column; align-items: flex-start; width: 100%; text-align: left; padding: 5px 8px; }
-.modelrow.on { outline: 2px solid var(--accent); outline-offset: -1px; }
-.modelrow small { color: var(--mute); font-size: 12px; }
+.picker { display: flex; flex-direction: column; gap: 6px; }
+.picker > input { width: 100%; }
+.picked { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.picked-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.picked-row .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picked button { font-size: 13px; padding: 0 6px; }
+.picked .badge { background: var(--accent); color: #17130a; border-radius: 4px; padding: 0 7px; font-weight: 600; font-size: 12px; }
 .exportfile { color: var(--mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
 .exportline { margin-top: 8px; min-height: 22px; user-select: text; }
 .exportline .bad { color: #ff7b72; }
@@ -369,7 +372,7 @@ button.wide { width: 100%; padding: 7px; margin-bottom: 10px; }
 .mcheck { width: 14px; color: var(--accent); text-align: center; flex: none; }
 .mlabel { flex: 1; white-space: nowrap; }
 .msep { height: 1px; background: #2f333d; margin: 4px 0; }
-.mrow { display: flex; align-items: center; gap: 6px; padding: 5px 12px 5px 6px; }
+.mrow { display: flex; align-items: center; gap: 6px; padding: 5px 12px 5px 12px; }
 .swatches { display: flex; gap: 4px; }
 .sw { width: 16px; height: 16px; border-radius: 3px; cursor: pointer; border: 1px solid #0008; }
 .sw.none { background: repeating-linear-gradient(45deg, #2a2e38 0 3px, #1b1d23 3px 6px); }

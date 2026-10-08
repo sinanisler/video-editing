@@ -28,7 +28,7 @@ pub use model::*;
 pub use probe::{probe_mp4, Probe};
 pub use render::{render, CANCELLED};
 pub use scan::media_under;
-pub use speech::{audio_streams, chunk_spans, parse_speech, speech_audio, AudioStream, SpeechCue, CHUNK_SECONDS};
+pub use speech::{audio_streams, encode_speech, parse_speech, AudioStream, SpeechCue, PART_SECONDS};
 pub use tools::{catalog, is_export, ToolDef, INSTRUCTIONS};
 
 #[cfg(test)]
