@@ -71,9 +71,11 @@ export const ui = createStore({
   trackHeights: {} as Record<string, number>,
   /** Collapsed tracks show as a thin strip. */
   collapsed: {} as Record<string, boolean>,
-  /** Default height of video and audio tracks. The divider between the two groups changes them. */
+  /** Default height of video and audio tracks. Track heights are set per track, not by the divider. */
   videoH: 46,
   audioH: 42,
+  /** How far the channel stack has been moved with the divider, in pixels. Positive is down. Heights do not change. */
+  channelPan: 0,
   /** Width of the track headers column, in pixels. */
   headsW: 190,
   /** Height of the timeline panel, in pixels. Starts at 46% of the window. */

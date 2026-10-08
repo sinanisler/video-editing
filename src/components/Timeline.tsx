@@ -5,7 +5,7 @@ import type { MenuItem } from "../store";
 import { openMenu } from "./ContextMenu";
 import type { Clip, Sequence, Track } from "../types";
 import { clamp, clipClass, clipEnd, fits, fpsOf, linkedIds, MAX_PPS, MIN_PPS, mmss, THIN_LANE_PX, timecode, timelineFrames, trackHeight } from "../util";
-import { openTrackMenu, Splitter, SPLITTER_PX, TrackHead } from "./Tracks";
+import { CHANNEL_EDGE_PX, openTrackMenu, Splitter, SPLITTER_PX, TrackHead } from "./Tracks";
 import { openClipMenu } from "./ClipMenu";
 import { filmstripKey, filmstripSize, frameUrl, requestFilmstrip } from "../filmstrip";
 import { Waveform } from "./Waveform";
@@ -223,6 +223,7 @@ export function Timeline() {
   const showPace = ui.use((s) => s.showPace);
   const videoH = ui.use((s) => s.videoH);
   const audioH = ui.use((s) => s.audioH);
+  const channelPan = ui.use((s) => s.channelPan);
   const heights = ui.use((s) => s.trackHeights);
   const collapsed = ui.use((s) => s.collapsed);
   const colours = ui.use((s) => s.trackColors);
@@ -528,17 +529,23 @@ export function Timeline() {
             <button data-tip="Add a video track" onClick={() => exec("timeline.add_track", { kind: "video" })}>+ Video</button>
             <button data-tip="Add an audio track" onClick={() => exec("timeline.add_track", { kind: "audio" })}>+ Audio</button>
           </div>
-          {showPace && (
-            <div className="hd ana" style={{ height: 24 }} data-tip="Cuts on the lowest video track per 10 seconds">
-              Pace · cuts / 10 s
+          <div className="chanwrap" style={{ paddingBottom: Math.max(0, channelPan) }}>
+            <div className="chanstack" style={{ transform: `translateY(${channelPan}px)` }}>
+              {showPace && (
+                <div className="hd ana" style={{ height: 24 }} data-tip="Cuts on the lowest video track per 10 seconds">
+                  Pace · cuts / 10 s
+                </div>
+              )}
+              {seq.tracks.map((t, i) => (
+                <Fragment key={t.id}>
+                  {i === 0 && <div style={{ height: CHANNEL_EDGE_PX }} />}
+                  {i === splitIndex && <div className="splitpad" style={{ height: SPLITTER_PX }}><Splitter /></div>}
+                  <TrackHead t={t} seq={seq} height={trackHeight(t, layout)} />
+                  {i === seq.tracks.length - 1 && <div style={{ height: CHANNEL_EDGE_PX }} />}
+                </Fragment>
+              ))}
             </div>
-          )}
-          {seq.tracks.map((t, i) => (
-            <Fragment key={t.id}>
-              {i === splitIndex && <div className="splitpad" style={{ height: SPLITTER_PX }}><Splitter tracks={seq.tracks} /></div>}
-              <TrackHead t={t} seq={seq} height={trackHeight(t, layout)} />
-            </Fragment>
-          ))}
+          </div>
         </div>
 
         <div id="scroll" ref={scroller}>
@@ -572,10 +579,13 @@ export function Timeline() {
               onPointerMove={(e) => tool === "razor" && setCutFrame(snapTarget(frameAt(e.clientX)) ?? frameAt(e.clientX))}
               onPointerLeave={() => setCutFrame(null)}
             >
+              <div className="chanwrap" style={{ paddingBottom: Math.max(0, channelPan) }}>
+              <div className="chanstack" style={{ transform: `translateY(${channelPan}px)` }}>
               {showPace && <PaceLane seq={seq} fps={fps} ppf={ppf} total={total} />}
               {seq.tracks.map((t, i) => (
                 <Fragment key={t.id}>
-                {i === splitIndex && <div className="splitpad" style={{ height: SPLITTER_PX }}><Splitter tracks={seq.tracks} /></div>}
+                {i === 0 && <div style={{ height: CHANNEL_EDGE_PX }} />}
+                {i === splitIndex && <div className="splitpad" style={{ height: SPLITTER_PX }}><Splitter /></div>}
                 <div
                   data-track={t.id}
                   className={`lane ${t.locked ? "locked" : ""} ${t.muted || t.hidden ? "dim" : ""} ${layout.collapsed[t.id] ? "mini" : ""} ${thin(t) ? "thin" : ""} ${targetId === t.id ? "target" : ""}`}
@@ -624,8 +634,11 @@ export function Timeline() {
                       );
                     })}
                 </div>
+                {i === seq.tracks.length - 1 && <div style={{ height: CHANNEL_EDGE_PX }} />}
                 </Fragment>
               ))}
+              </div>
+              </div>
             </div>
 
             {marquee && <div id="marquee" style={{ left: marquee.x, top: marquee.y, width: marquee.w, height: marquee.h }} />}

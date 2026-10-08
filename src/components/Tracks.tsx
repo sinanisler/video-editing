@@ -2,7 +2,7 @@ import type React from "react";
 import { exec, ui } from "../store";
 import type { MenuItem } from "../store";
 import type { Sequence, Track } from "../types";
-import { clamp, splitDrag, TRACK_MAX_PX, TRACK_MIN_PX } from "../util";
+import { clamp, TRACK_MAX_PX, TRACK_MIN_PX } from "../util";
 import { openMenu } from "./ContextMenu";
 import { exportSubtitles, importSubtitles, pickSubtitleFile } from "../captions";
 
@@ -11,6 +11,12 @@ export const TRACK_COLOURS = ["#3566c9", "#2b9167", "#1d8598", "#7556cf", "#b84a
 
 /** The two groups are separated by a divider; this is the track that starts the audio group. */
 export const SPLITTER_PX = 8;
+
+/**
+ * Empty space above the first track and below the last, in both the headers and the lanes. It is not a track, so
+ * heights and toggles do not change.
+ */
+export const CHANNEL_EDGE_PX = 40;
 
 function TrackName({ t }: { t: Track }) {
   const renaming = ui.use((s) => s.renaming === t.id);
@@ -56,28 +62,17 @@ function startResize(e: React.PointerEvent, t: Track, height: number) {
 }
 
 /**
- * Drag the divider between the video and audio groups. The line follows the pointer: the video tracks above it
- * grow or shrink by the same amount, and the audio tracks below keep their size and move with it. Pulling the
- * video group below its minimum collapses it, and pulling it back out expands it again. Tracks folded by hand
- * stay folded (see splitDrag).
+ * Drag the divider to move the whole channel stack up or down. Track heights and folds do not change, so the clips
+ * keep their size. The empty space above the first track and below the last takes the movement, and it grows as far
+ * as the drag goes.
  */
-function startSplit(e: React.PointerEvent, tracks: Track[]) {
+function startSplit(e: React.PointerEvent) {
   if (e.button !== 0) return;
   e.preventDefault();
   e.stopPropagation();
-  const videoIds = tracks.filter((t) => t.kind === "video").map((t) => t.id);
-  const start = ui.get();
+  const start = ui.get().channelPan;
   const y0 = e.clientY;
-  const move = (ev: PointerEvent) => {
-    const r = splitDrag(start, videoIds, ev.clientY - y0);
-    const s = ui.get();
-    ui.set({
-      // A folded group keeps its last open height, so pulling it back out restores that size.
-      videoH: r.folded ? s.videoH : r.videoH,
-      collapsed: r.collapsed,
-      trackHeights: r.trackHeights,
-    });
-  };
+  const move = (ev: PointerEvent) => ui.set({ channelPan: start + Math.round(ev.clientY - y0) });
   const up = () => {
     window.removeEventListener("pointermove", move);
     window.removeEventListener("pointerup", up);
@@ -87,12 +82,13 @@ function startSplit(e: React.PointerEvent, tracks: Track[]) {
 }
 
 /** The divider row. It appears in both the headers column and the lanes, so the two stay aligned. */
-export function Splitter({ tracks }: { tracks: Track[] }) {
+export function Splitter() {
   return (
     <div
       className="split"
-      data-tip="Drag up or down to give video or audio tracks more height"
-      onPointerDown={(e) => startSplit(e, tracks)}
+      data-tip="Drag up or down to move the channels. Heights stay the same. Double-click to put them back."
+      onPointerDown={startSplit}
+      onDoubleClick={() => ui.set({ channelPan: 0 })}
     />
   );
 }

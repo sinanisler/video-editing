@@ -360,6 +360,8 @@ button.wide { width: 100%; padding: 7px; margin-bottom: 10px; }
 .hd .fold { display: inline-block; width: 16px; font-size: 16px; text-align: center; color: var(--mute); pointer-events: none; }
 /* Width handle on the right edge of the track headers column. */
 #heads { position: relative; }
+/* The channel stack can move up past the ruler, so the top is cut at the ruler line. Left, right and bottom stay open. */
+.chanwrap { clip-path: inset(0 -100vw -100vh -100vw); }
 .colgrip { position: absolute; top: 0; bottom: 0; right: 0; width: 10px; cursor: ew-resize; z-index: 5; }
 .colgrip:hover { background: #f5b83d55; }
 
