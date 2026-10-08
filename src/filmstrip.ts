@@ -3,10 +3,11 @@ import { ui } from "./store";
 import type { MediaItem } from "./types";
 
 /**
- * Frame height the cache is made in: 240 pixels. Tracks are at most 120 px tall, which is 240 physical pixels on a
- * 2x screen, so one size covers every track without stretching.
+ * Frame heights the cache is made in: 240 and 480 pixels. Tracks are at most 240 px tall, which is 480 physical pixels
+ * on a 2x screen. Each track uses the smallest size that is at least as tall as it is on screen, so frames are not
+ * stretched.
  */
-export const FILMSTRIP_SIZES = [240];
+export const FILMSTRIP_SIZES = [240, 480];
 /** One frame every quarter second of video, so the frame under the playhead is within an eighth of a second of its time. */
 export const FILMSTRIP_INTERVAL = 0.25;
 

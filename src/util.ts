@@ -47,7 +47,7 @@ export const TRACK_MIN_PX = 24;
  * are not even made, which saves the work of making them.
  */
 export const THIN_LANE_PX = 30;
-export const TRACK_MAX_PX = 120;
+export const TRACK_MAX_PX = 240;
 
 /** How tall each track is on screen. Kept in the view state, not the project. */
 export interface TrackLayout {
