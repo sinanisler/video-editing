@@ -356,17 +356,49 @@ pub fn probe_streams(path: &str) -> MediaInfo {
     MediaInfo { audio_streams: log.lines().filter(|l| l.trim_start().starts_with("Stream #0:") && l.contains("Audio:")).count() }
 }
 
-/// The encoders from [`ENCODERS`] that work on this machine, best first. Each is tried once on a
-/// blank picture, because FFmpeg lists graphics-card encoders whether or not the card is there.
-pub fn available_encoders() -> &'static [String] {
-    static FOUND: OnceLock<Vec<String>> = OnceLock::new();
-    FOUND.get_or_init(|| {
-        let works = |encoder: &str| {
+/// What the probe found for each encoder in [`ENCODERS`]: the ones that work, and the others with the reason.
+struct Probe {
+    found: Vec<String>,
+    missing: Vec<(String, String)>,
+}
+
+fn probe() -> &'static Probe {
+    static PROBE: OnceLock<Probe> = OnceLock::new();
+    PROBE.get_or_init(|| {
+        let (mut found, mut missing) = (vec![], vec![]);
+        // Each is tried once on a blank picture, because FFmpeg lists graphics-card encoders whether or not the card is there.
+        for encoder in ENCODERS {
             let args = ["-f", "lavfi", "-i", "color=s=256x256:r=30:d=0.2", "-c:v", encoder, "-f", "null", "-"];
-            run(args.map(String::from).into()).is_ok_and(|out| out.status.success())
-        };
-        ENCODERS.iter().filter(|e| works(e)).map(|e| e.to_string()).collect()
+            match run(args.map(String::from).into()) {
+                Ok(out) if out.status.success() => found.push(encoder.to_string()),
+                Ok(out) => missing.push((encoder.to_string(), reason(&out.stderr))),
+                Err(e) => missing.push((encoder.to_string(), e)),
+            }
+        }
+        Probe { found, missing }
     })
+}
+
+/// The line FFmpeg printed that says why an encoder would not start, when there is one.
+fn reason(stderr: &[u8]) -> String {
+    let text = String::from_utf8_lossy(stderr);
+    // Log lines look like "[h264_nvenc @ 0000] message"; the message is what follows the last bracket.
+    let lines: Vec<&str> = text.lines().map(|l| l.rsplit("] ").next().unwrap_or(l).trim()).filter(|l| !l.is_empty()).collect();
+    lines
+        .iter()
+        .find(|l| l.contains("minimum required") || l.contains("does not support") || l.contains("Unknown encoder"))
+        .map(|l| l.to_string())
+        .unwrap_or_else(|| "this encoder would not start on this computer".into())
+}
+
+/// The encoders from [`ENCODERS`] that work on this machine, best first.
+pub fn available_encoders() -> &'static [String] {
+    &probe().found
+}
+
+/// The encoders from [`ENCODERS`] that do not work here, each with the reason it does not.
+pub fn unavailable_encoders() -> &'static [(String, String)] {
+    &probe().missing
 }
 
 /// Reads standard base64, as the window sends the pictures it draws.

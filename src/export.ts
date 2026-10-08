@@ -7,6 +7,9 @@ import { blobBase64, renderText } from "./exportText";
 import { core, toast } from "./store";
 
 export type Quality = "high" | "standard" | "small";
+export type Codec = "h264" | "hevc";
+/** quality: one quality for the whole picture. vbr: a target that rises and falls, up to a maximum. cbr: the same bitrate every second. */
+export type RateMode = "quality" | "vbr" | "cbr";
 
 export interface ExportSettings {
   path: string;
@@ -14,10 +17,22 @@ export interface ExportSettings {
   height: number;
   fps: number;
   quality: Quality;
-  /** Empty for the best encoder the machine has. */
+  /** Empty for the best encoder for the codec that the machine has. */
   encoder: string;
   range: "whole" | "in_out";
   audio: "first" | "all";
+  codec: Codec;
+  rate: RateMode;
+  /** Target video bitrate in kilobits a second, for vbr and cbr. */
+  bitrate_kbps: number;
+  /** Highest bitrate in kilobits a second, for vbr. */
+  max_kbps: number;
+  two_pass: boolean;
+  /** Frames between keyframes; 0 for half the frame rate. */
+  keyframe_frames: number;
+  b_frames: number;
+  /** Stereo AAC bitrate in kilobits a second. */
+  audio_kbps: number;
 }
 
 export interface ExportPreset {
@@ -28,15 +43,32 @@ export interface ExportPreset {
   height: number;
   fps: number;
   quality: Quality;
+  codec: Codec;
+  rate: RateMode;
+  bitrate_kbps: number;
+  max_kbps: number;
 }
 
 export interface ExportOptions {
   presets: ExportPreset[];
+  /** Encoders that work on this machine, best first. */
   encoders: string[];
+  /** Encoders that do not work here, with FFmpeg's reason. */
+  unavailable: { encoder: string; reason: string }[];
   /** A suggested output file. */
   path: string;
   has_range: boolean;
 }
+
+/** The codec an encoder makes. Mirrors `codec_of` in the Rust core, which is what decides. */
+export function codecOf(encoder: string): Codec | null {
+  if (["h264_nvenc", "h264_qsv", "h264_amf", "libx264"].includes(encoder)) return "h264";
+  if (["hevc_nvenc", "hevc_qsv", "hevc_amf", "libx265"].includes(encoder)) return "hevc";
+  return null;
+}
+
+/** The software encoder for a codec, which two passes use. */
+export const softwareFor = (codec: Codec): string => (codec === "hevc" ? "libx265" : "libx264");
 
 export interface ExportStatus {
   state: "idle" | "preparing" | "rendering" | "done" | "failed" | "cancelled";

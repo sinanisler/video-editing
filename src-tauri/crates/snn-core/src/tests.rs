@@ -614,18 +614,15 @@ mod export {
         }
 
         fn export(&self, name: &str, fps: f64, text: &[TextTrack]) -> (PathBuf, Plan) {
+            self.export_with(name, fps, text, "libx264", |_| {})
+        }
+
+        /// Renders with `encoder`, after `change` has set what the test needs.
+        fn export_with(&self, name: &str, fps: f64, text: &[TextTrack], encoder: &str, change: impl FnOnce(&mut ExportSettings)) -> (PathBuf, Plan) {
             let path = self.dir.join(name);
-            let settings = ExportSettings {
-                path: path.display().to_string(),
-                width: 640,
-                height: 360,
-                fps,
-                quality: Quality::High,
-                encoder: String::new(),
-                range: ExportRange::Whole,
-                audio: AudioStreams::First,
-            };
-            let plan = plan_export(self.e.project(), &settings, "libx264", text, &|m| probe_streams(&m.path), &self.dir).unwrap();
+            let mut settings = ExportSettings { quality: Quality::High, ..ExportSettings::new(path.display().to_string(), 640, 360, fps) };
+            change(&mut settings);
+            let plan = plan_export(self.e.project(), &settings, encoder, text, &|m| probe_streams(&m.path), &self.dir).unwrap();
             let mut last = 0;
             render(&plan, &AtomicBool::new(false), &mut |n| last = n).unwrap();
             assert_eq!(last, plan.total_frames);
@@ -813,16 +810,7 @@ mod export {
         assert_eq!((e.project().settings.fps_num, e.project().settings.fps_den), (30000, 1001));
         assert!(e.call_tool("t", "project_set_settings", json!({"width": 641})).is_err());
 
-        let s = |path: &str, width, height| ExportSettings {
-            path: path.into(),
-            width,
-            height,
-            fps: 30.0,
-            quality: Quality::Standard,
-            encoder: String::new(),
-            range: ExportRange::Whole,
-            audio: AudioStreams::First,
-        };
+        let s = |path: &str, width, height| ExportSettings { quality: Quality::Standard, ..ExportSettings::new(path, width, height, 30.0) };
         let p = e.project();
         assert!(check_export(p, &s("out.mp4", 1920, 1080)).unwrap_err().contains("full path"));
         assert!(check_export(p, &s("C:/out.avi", 1920, 1080)).unwrap_err().contains(".mp4"));
@@ -830,7 +818,115 @@ mod export {
         assert!(check_export(p, &s("C:/out.mp4", 1280, 720)).unwrap_err().contains("is missing"));
         assert!(check_export(&Project::new("empty"), &s("C:/out.mp4", 1280, 720)).unwrap_err().contains("nothing on the timeline"));
         let sizes: Vec<(u32, u32)> = export_presets(p).iter().map(|x| (x.width, x.height)).collect();
-        assert_eq!(sizes, [(1920, 1080), (1920, 1080), (1920, 1080), (2560, 1440), (1280, 720)]);
+        assert_eq!(sizes, [(1920, 1080), (1920, 1080), (1920, 1080), (2560, 1440), (2560, 1440), (3840, 2160), (3840, 2160), (1920, 1080), (1280, 720)]);
+    }
+
+    /// The YouTube presets carry YouTube's recommended bitrates, in H.264 with variable bitrate.
+    #[test]
+    fn youtube_presets_use_youtubes_bitrates() {
+        let presets = export_presets(&Project::new("presets"));
+        let find = |id: &str| presets.iter().find(|x| x.id == id).unwrap().clone();
+        let p30 = find("youtube_1080p30");
+        assert_eq!((p30.codec, p30.rate, p30.bitrate_kbps, p30.max_kbps), (Codec::H264, RateMode::Vbr, 8_000, 12_000));
+        assert_eq!(find("youtube_1080p60").bitrate_kbps, 12_000);
+        assert_eq!(find("youtube_1440p60").bitrate_kbps, 24_000);
+        assert_eq!(find("youtube_2160p30").bitrate_kbps, 40_000);
+        assert_eq!(find("draft_720p").rate, RateMode::Quality);
+    }
+
+    /// Each encoder's own names for the rate modes, the keyframe rule, the B-frames and the H.265 tag.
+    #[test]
+    fn encoder_arguments_follow_the_settings() {
+        use crate::export::encoder_args;
+        let has = |args: &[String], pair: &[&str]| args.windows(pair.len()).any(|w| w.iter().map(String::as_str).eq(pair.iter().copied()));
+        let mut s = ExportSettings::new("C:/out.mp4", 1920, 1080, 30.0);
+        s.rate = RateMode::Vbr;
+        s.bitrate_kbps = 8_000;
+        s.max_kbps = 12_000;
+        let vbr = encoder_args("libx264", &s).unwrap();
+        assert!(has(&vbr, &["-b:v", "8000k"]) && has(&vbr, &["-maxrate", "12000k"]) && has(&vbr, &["-bufsize", "24000k"]), "{vbr:?}");
+        assert!(has(&vbr, &["-g", "15"]) && has(&vbr, &["-bf", "2"]), "half the frame rate and two B-frames: {vbr:?}");
+        s.keyframe_frames = 60;
+        assert!(has(&encoder_args("libx264", &s).unwrap(), &["-g", "60"]));
+        s.rate = RateMode::Cbr;
+        let cbr = encoder_args("h264_nvenc", &s).unwrap();
+        assert!(has(&cbr, &["-rc", "cbr"]) && has(&cbr, &["-b:v", "8000k"]), "{cbr:?}");
+        s.codec = Codec::Hevc;
+        let hevc = encoder_args("hevc_nvenc", &s).unwrap();
+        assert!(has(&hevc, &["-tag:v", "hvc1"]), "{hevc:?}");
+        s.rate = RateMode::Quality;
+        s.quality = Quality::High;
+        assert!(has(&encoder_args("libx265", &s).unwrap(), &["-crf", "22"]));
+        assert!(encoder_args("vp9", &s).is_err());
+    }
+
+    /// Settings that cannot make a sensible file are refused before anything is rendered.
+    #[test]
+    fn export_settings_are_checked() {
+        let mut e = Editor::default();
+        e.call_tool("t", "project_set_settings", json!({"width": 640, "height": 360})).unwrap();
+        let base = ExportSettings::new("C:/out.mp4", 640, 360, 30.0);
+        let refused = |change: fn(&mut ExportSettings)| {
+            let mut s = base.clone();
+            change(&mut s);
+            check_export(e.project(), &s).unwrap_err()
+        };
+        assert!(refused(|s| s.encoder = "hevc_nvenc".into()).contains("makes H.265"));
+        assert!(refused(|s| s.encoder = "vp9".into()).contains("unknown encoder"));
+        assert!(refused(|s| {
+            s.rate = RateMode::Vbr;
+            s.bitrate_kbps = 50;
+        })
+        .contains("between 100"));
+        assert!(refused(|s| {
+            s.rate = RateMode::Vbr;
+            s.bitrate_kbps = 8_000;
+            s.max_kbps = 4_000;
+        })
+        .contains("maximum bitrate"));
+        assert!(refused(|s| s.two_pass = true).contains("variable bitrate"));
+        assert!(refused(|s| {
+            s.rate = RateMode::Vbr;
+            s.two_pass = true;
+            s.encoder = "h264_nvenc".into();
+        })
+        .contains("software encoder"));
+        assert!(refused(|s| s.b_frames = 5).contains("B-frames"));
+        assert!(refused(|s| s.audio_kbps = 10).contains("audio bitrate"));
+    }
+
+    /// Bitrate exports land near their target. The sound is 384 kbps AAC, which adds to the file.
+    #[test]
+    fn bitrate_exports_land_near_their_target() {
+        let Some(mut b) = Bench::new("bitrate") else { return };
+        b.clip("V1", 0, 60, "steps.mp4", 0);
+        let (cbr, _) = b.export_with("cbr.mp4", 30.0, &[], "libx264", |s| {
+            s.rate = RateMode::Cbr;
+            s.bitrate_kbps = 2_000;
+        });
+        let (two, _) = b.export_with("two.mp4", 30.0, &[], "libx264", |s| {
+            s.rate = RateMode::Vbr;
+            s.two_pass = true;
+            s.bitrate_kbps = 2_000;
+            s.max_kbps = 3_000;
+        });
+        // Two seconds of picture at the target, plus two seconds of sound.
+        let expected = (2_000.0 + 384.0) * 2.0 * 1000.0 / 8.0;
+        let cbr_size = std::fs::metadata(&cbr).unwrap().len() as f64;
+        assert!((cbr_size / expected - 1.0).abs() < 0.2, "constant bitrate wrote {cbr_size} bytes, expected about {expected}");
+        let two_size = std::fs::metadata(&two).unwrap().len() as f64;
+        assert!(two_size < (3_000.0 + 384.0) * 2.0 * 1000.0 / 8.0 * 1.2, "two passes wrote {two_size} bytes, above the maximum");
+    }
+
+    /// An H.265 export is an MP4 tagged hvc1, so Apple's players read it, and it passes the playback check.
+    #[test]
+    fn h265_exports_play() {
+        let Some(mut b) = Bench::new("hevc") else { return };
+        b.clip("V1", 0, 30, "red.mp4", 0);
+        let (file, _) = b.export_with("hevc.mp4", 30.0, &[], "libx265", |s| s.codec = Codec::Hevc);
+        let out = Command::new(ffmpeg_path()).args(["-hide_banner", "-i", &file.display().to_string()]).output().unwrap();
+        let log = String::from_utf8_lossy(&out.stderr);
+        assert!(log.contains("Video: hevc") && log.contains("hvc1"), "{log}");
     }
 
     /// Every transition and effect in the library must come out as filters FFmpeg accepts.

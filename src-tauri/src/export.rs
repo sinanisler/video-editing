@@ -9,7 +9,8 @@ use crate::SharedEditor;
 use serde::Serialize;
 use serde_json::{json, Value};
 use snn_core::{
-    available_encoders, check_export, export_presets, plan_export, probe_streams, render, unbase64, ExportSettings, MediaInfo, TextTrack, CANCELLED,
+    available_encoders, check_export, codec_name, codec_of, export_presets, plan_export, probe_streams, render, unavailable_encoders, unbase64, Codec,
+    ExportSettings, MediaInfo, TextTrack, CANCELLED,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -102,6 +103,8 @@ pub fn options(app: &AppHandle, editor: &SharedEditor) -> Value {
     json!({
         "presets": export_presets(p),
         "encoders": available_encoders(),
+        // Encoders that did not start here, with FFmpeg's reason, so the window can say what to fix.
+        "unavailable": unavailable_encoders().iter().map(|(encoder, reason)| json!({ "encoder": encoder, "reason": reason })).collect::<Vec<_>>(),
         "path": folder.join(format!("{name}.mp4")).display().to_string(),
         "has_range": p.sequence.in_point.is_some() || p.sequence.out_point.is_some(),
     })
@@ -140,8 +143,24 @@ pub fn begin(app: &AppHandle, exports: &Exports, editor: &SharedEditor, settings
     let started = (|| {
         let (from, to) = check_export(editor.lock().unwrap().project(), &settings)?;
         let found = available_encoders();
+        if found.is_empty() {
+            return Err("FFmpeg was not found, or none of its encoders works here; install it with: winget install Gyan.FFmpeg".into());
+        }
+        let codec = settings.codec;
         let encoder = match settings.encoder.as_str() {
-            "" => found.first().cloned().ok_or("FFmpeg was not found, or it has no H.264 encoder; install it with: winget install Gyan.FFmpeg")?,
+            // Two passes run on the processor, so an automatic choice takes the software encoder for the codec.
+            "" if settings.two_pass => {
+                let software = if codec == Codec::Hevc { "libx265" } else { "libx264" };
+                if !found.iter().any(|e| e == software) {
+                    return Err(format!("{software} does not work here, so two-pass cannot run"));
+                }
+                software.to_string()
+            }
+            "" => found
+                .iter()
+                .find(|e| codec_of(e) == Some(codec))
+                .cloned()
+                .ok_or_else(|| format!("this computer has no {} encoder; it has: {}", codec_name(codec), found.join(", ")))?,
             wanted if found.iter().any(|e| e == wanted) => wanted.to_string(),
             wanted => return Err(format!("this machine cannot use {wanted}; it has: {}", found.join(", "))),
         };
@@ -251,8 +270,14 @@ pub fn tool(app: &AppHandle, exports: &Exports, editor: &SharedEditor, name: &st
             let wanted = args["preset"].as_str().unwrap_or("project");
             let preset = all["presets"].as_array().into_iter().flatten().find(|p| p["id"] == wanted).ok_or_else(|| format!("no preset {wanted}; see export_list_presets"))?;
             // A preset fills in what the call leaves out.
-            let mut settings = json!({ "path": all["path"], "width": preset["width"], "height": preset["height"], "fps": preset["fps"], "quality": preset["quality"] });
-            for key in ["path", "width", "height", "fps", "quality", "encoder", "range", "audio"] {
+            let mut settings = json!({
+                "path": all["path"], "width": preset["width"], "height": preset["height"], "fps": preset["fps"], "quality": preset["quality"],
+                "codec": preset["codec"], "rate": preset["rate"], "bitrate_kbps": preset["bitrate_kbps"], "max_kbps": preset["max_kbps"],
+            });
+            for key in [
+                "path", "width", "height", "fps", "quality", "encoder", "range", "audio", "codec", "rate", "bitrate_kbps", "max_kbps", "two_pass",
+                "keyframe_frames", "b_frames", "audio_kbps",
+            ] {
                 if !args[key].is_null() {
                     settings[key] = args[key].clone();
                 }

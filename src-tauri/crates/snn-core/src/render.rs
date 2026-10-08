@@ -56,11 +56,20 @@ pub fn render(plan: &Plan, cancel: &AtomicBool, progress: &mut dyn FnMut(i64)) -
     }
     let mut done = 0;
     for chunk in &plan.chunks {
+        // With two passes the first run takes the first half of this chunk's share of the bar, the second run the rest.
+        let split = if chunk.first_pass.is_some() { chunk.frames / 2 } else { 0 };
+        if let Some(first) = &chunk.first_pass {
+            let mut most = 0;
+            run(first, cancel, &mut |n| {
+                most = most.max(n.min(chunk.frames));
+                progress(done + most * split / chunk.frames)
+            })?;
+        }
         // FFmpeg's count can dip when a filter restarts; the bar must not go backwards.
         let mut most = 0;
         run(&chunk.args, cancel, &mut |n| {
             most = most.max(n.min(chunk.frames));
-            progress(done + most)
+            progress(done + split + most * (chunk.frames - split) / chunk.frames)
         })?;
         done += chunk.frames;
         progress(done);

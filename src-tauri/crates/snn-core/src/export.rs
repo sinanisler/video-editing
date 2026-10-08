@@ -51,6 +51,29 @@ pub enum AudioStreams {
     All,
 }
 
+/// The video format. H.264 plays everywhere and is what YouTube asks for. H.265 makes smaller files at the same quality,
+/// but not every player reads it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Codec {
+    #[default]
+    H264,
+    Hevc,
+}
+
+/// How the encoder decides how many bits each part of the picture gets.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RateMode {
+    /// One quality for the whole picture, so the file size follows the picture. `quality` sets how high.
+    #[default]
+    Quality,
+    /// A target bitrate that rises and falls with the picture, never above the maximum.
+    Vbr,
+    /// The same bitrate every second, whatever the picture.
+    Cbr,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ExportSettings {
     /// Output file. The extension picks the container: mp4, mov or mkv.
@@ -60,15 +83,78 @@ pub struct ExportSettings {
     pub fps: f64,
     #[serde(default)]
     pub quality: Quality,
-    /// An encoder from [`ENCODERS`], or empty for the best one the machine has.
+    /// An encoder from [`ENCODERS`], or empty for the best one for `codec` that the machine has.
     #[serde(default)]
     pub encoder: String,
     #[serde(default)]
     pub range: ExportRange,
     #[serde(default)]
     pub audio: AudioStreams,
+    #[serde(default)]
+    pub codec: Codec,
+    #[serde(default)]
+    pub rate: RateMode,
+    /// Target video bitrate in kilobits a second, for the two bitrate modes.
+    #[serde(default = "default_bitrate_kbps")]
+    pub bitrate_kbps: u32,
+    /// Highest bitrate in kilobits a second, for variable bitrate.
+    #[serde(default = "default_max_kbps")]
+    pub max_kbps: u32,
+    /// Two passes over the picture, for an even bitrate across the file. Variable bitrate on a software encoder only.
+    #[serde(default)]
+    pub two_pass: bool,
+    /// Frames between keyframes. Zero means half the frame rate, which is what YouTube asks for.
+    #[serde(default)]
+    pub keyframe_frames: u32,
+    /// Consecutive B-frames, from 0 to 4. YouTube asks for 2.
+    #[serde(default = "default_b_frames")]
+    pub b_frames: u32,
+    /// Bitrate of the stereo AAC sound in kilobits a second. YouTube asks for 384 for stereo.
+    #[serde(default = "default_audio_kbps")]
+    pub audio_kbps: u32,
 }
 
+fn default_bitrate_kbps() -> u32 {
+    16_000
+}
+
+fn default_max_kbps() -> u32 {
+    24_000
+}
+
+fn default_b_frames() -> u32 {
+    2
+}
+
+fn default_audio_kbps() -> u32 {
+    384
+}
+
+impl ExportSettings {
+    /// Settings with the usual choices for a file at this path, size and frame rate.
+    pub fn new(path: impl Into<String>, width: u32, height: u32, fps: f64) -> Self {
+        Self {
+            path: path.into(),
+            width,
+            height,
+            fps,
+            quality: Quality::default(),
+            encoder: String::new(),
+            range: ExportRange::default(),
+            audio: AudioStreams::default(),
+            codec: Codec::default(),
+            rate: RateMode::default(),
+            bitrate_kbps: default_bitrate_kbps(),
+            max_kbps: default_max_kbps(),
+            two_pass: false,
+            keyframe_frames: 0,
+            b_frames: default_b_frames(),
+            audio_kbps: default_audio_kbps(),
+        }
+    }
+}
+
+/// A ready-made set of settings, shown in the export window and to agents.
 #[derive(Clone, Debug, Serialize)]
 pub struct Preset {
     pub id: &'static str,
@@ -78,45 +164,120 @@ pub struct Preset {
     pub height: u32,
     pub fps: f64,
     pub quality: Quality,
+    pub codec: Codec,
+    pub rate: RateMode,
+    /// Target bitrate in kilobits a second, used when the rate mode is a bitrate mode.
+    pub bitrate_kbps: u32,
+    /// Highest bitrate in kilobits a second, used by variable bitrate.
+    pub max_kbps: u32,
 }
 
-/// Ready-made settings. The first two follow the project so they always fit it.
+/// Ready-made settings. The first follows the project so it always fits it.
+///
+/// The YouTube presets use YouTube's recommended bitrates for SDR uploads, in H.264 with variable bitrate. The page
+/// says they are recommendations, not limits, so the maximum is set half as high again as the target.
 pub fn presets(p: &Project) -> Vec<Preset> {
     let s = &p.settings;
     let fps = s.fps_num as f64 / s.fps_den as f64;
     let tall = |h: u32| (((s.width as f64 / s.height as f64 * h as f64) / 2.0).round() as u32 * 2, h);
-    let preset = |id, label, hint, (width, height): (u32, u32), fps, quality| Preset { id, label, hint, width, height, fps, quality };
+    let base = |id, label, hint, (width, height): (u32, u32), fps, quality| Preset {
+        id,
+        label,
+        hint,
+        width,
+        height,
+        fps,
+        quality,
+        codec: Codec::H264,
+        rate: RateMode::Quality,
+        bitrate_kbps: default_bitrate_kbps(),
+        max_kbps: default_max_kbps(),
+    };
+    let youtube = |preset: Preset, kbps: u32| Preset { rate: RateMode::Vbr, bitrate_kbps: kbps, max_kbps: kbps * 3 / 2, ..preset };
     vec![
-        preset("project", "Same as project", "The project's size and frame rate", (s.width, s.height), fps, Quality::Standard),
-        preset("youtube_1080p60", "YouTube 1080p60", "Smooth motion for gameplay recorded at 60 fps", tall(1080), 60.0, Quality::High),
-        preset("youtube_1080p30", "YouTube 1080p30", "Smaller file, fine for slow footage", tall(1080), 30.0, Quality::High),
-        preset("youtube_1440p60", "YouTube 1440p60", "Upscaled; YouTube gives 1440p uploads a better codec", tall(1440), 60.0, Quality::High),
-        preset("draft_720p", "Draft 720p", "Fast and small, for checking an edit", tall(720), 30.0, Quality::Small),
+        base("project", "Same as project", "The project's size and frame rate", (s.width, s.height), fps, Quality::Standard),
+        youtube(base("youtube_1080p60", "YouTube 1080p60", "YouTube's recommended 12 Mbps for 48–60 fps", tall(1080), 60.0, Quality::High), 12_000),
+        youtube(base("youtube_1080p30", "YouTube 1080p30", "YouTube's recommended 8 Mbps for 24–30 fps", tall(1080), 30.0, Quality::High), 8_000),
+        youtube(base("youtube_1440p60", "YouTube 1440p60", "YouTube's recommended 24 Mbps for 48–60 fps", tall(1440), 60.0, Quality::High), 24_000),
+        youtube(base("youtube_1440p30", "YouTube 1440p30", "YouTube's recommended 16 Mbps for 24–30 fps", tall(1440), 30.0, Quality::High), 16_000),
+        youtube(base("youtube_2160p60", "YouTube 2160p60", "YouTube's recommended 53–68 Mbps; 60 used here", tall(2160), 60.0, Quality::High), 60_000),
+        youtube(base("youtube_2160p30", "YouTube 2160p30", "YouTube's recommended 35–45 Mbps; 40 used here", tall(2160), 30.0, Quality::High), 40_000),
+        base("high_quality_1080p30", "High quality 1080p30", "One quality for the whole picture. A large file, for editing again later", tall(1080), 30.0, Quality::High),
+        base("draft_720p", "Draft 720p", "Fast and small, for checking an edit", tall(720), 30.0, Quality::Small),
     ]
 }
 
-/// H.264 encoders in order of preference: graphics-card encoders first, then software.
-pub const ENCODERS: [&str; 4] = ["h264_nvenc", "h264_qsv", "h264_amf", "libx264"];
+/// Encoders in order of preference for each codec: graphics-card encoders first, then software.
+pub const ENCODERS: [&str; 8] = ["h264_nvenc", "h264_qsv", "h264_amf", "libx264", "hevc_nvenc", "hevc_qsv", "hevc_amf", "libx265"];
 
-fn encoder_args(encoder: &str, quality: Quality, fps: f64) -> Result<Vec<String>, String> {
-    let level = |high: u32, standard: u32, small: u32| match quality {
+/// The codec an encoder from [`ENCODERS`] makes, or None for any other name.
+pub fn codec_of(encoder: &str) -> Option<Codec> {
+    match encoder {
+        "h264_nvenc" | "h264_qsv" | "h264_amf" | "libx264" => Some(Codec::H264),
+        "hevc_nvenc" | "hevc_qsv" | "hevc_amf" | "libx265" => Some(Codec::Hevc),
+        _ => None,
+    }
+}
+
+/// Whether an encoder works on the processor rather than the graphics card.
+pub fn is_software(encoder: &str) -> bool {
+    matches!(encoder, "libx264" | "libx265")
+}
+
+pub fn codec_name(codec: Codec) -> &'static str {
+    match codec {
+        Codec::H264 => "H.264",
+        Codec::Hevc => "H.265",
+    }
+}
+
+/// The FFmpeg options for one encoder and these settings. Each encoder has its own names for the rate modes.
+pub(crate) fn encoder_args(encoder: &str, s: &ExportSettings) -> Result<Vec<String>, String> {
+    let level = |high: u32, standard: u32, small: u32| match s.quality {
         Quality::High => high,
         Quality::Standard => standard,
         Quality::Small => small,
     };
-    let q = level(19, 23, 28).to_string();
-    let args: Vec<&str> = match encoder {
-        // Each chunk carries its own headers, so the joined file plays whatever the chunks' settings were.
-        "libx264" => vec!["-preset", "medium", "-crf", ["17", "20", "25"][level(0, 1, 2) as usize], "-pix_fmt", "yuv420p", "-x264-params", "repeat-headers=1"],
-        "h264_nvenc" => vec!["-preset", "p5", "-rc", "vbr", "-cq", &q, "-b:v", "0", "-pix_fmt", "yuv420p"],
-        "h264_qsv" => vec!["-global_quality", &q, "-pix_fmt", "nv12"],
-        "h264_amf" => vec!["-rc", "cqp", "-qp_i", &q, "-qp_p", &q, "-qp_b", &q, "-quality", "quality", "-pix_fmt", "yuv420p"],
-        other => return Err(format!("unknown encoder {other}; available: {}", ENCODERS.join(", "))),
+    let hevc = codec_of(encoder) == Some(Codec::Hevc);
+    let target = s.bitrate_kbps;
+    let max = s.max_kbps.max(target);
+    let (t, m, buffer) = (format!("{target}k"), format!("{max}k"), format!("{}k", max * 2));
+    let crf = if hevc { level(22, 25, 30) } else { level(17, 20, 25) }.to_string();
+    let cq = level(19, 23, 28).to_string();
+    let rate: Vec<&str> = match (encoder, s.rate) {
+        ("libx264" | "libx265", RateMode::Quality) => vec!["-crf", &crf],
+        ("libx264" | "libx265", RateMode::Vbr) => vec!["-b:v", &t, "-maxrate", &m, "-bufsize", &buffer],
+        ("libx264" | "libx265", RateMode::Cbr) => vec!["-b:v", &t, "-minrate", &t, "-maxrate", &t, "-bufsize", &t],
+        ("h264_nvenc" | "hevc_nvenc", RateMode::Quality) => vec!["-rc", "vbr", "-cq", &cq, "-b:v", "0"],
+        ("h264_nvenc" | "hevc_nvenc", RateMode::Vbr) => vec!["-rc", "vbr", "-b:v", &t, "-maxrate", &m, "-bufsize", &buffer],
+        ("h264_nvenc" | "hevc_nvenc", RateMode::Cbr) => vec!["-rc", "cbr", "-b:v", &t, "-maxrate", &t, "-bufsize", &t],
+        ("h264_qsv" | "hevc_qsv", RateMode::Quality) => vec!["-global_quality", &cq],
+        ("h264_qsv" | "hevc_qsv", RateMode::Vbr) => vec!["-b:v", &t, "-maxrate", &m],
+        ("h264_qsv" | "hevc_qsv", RateMode::Cbr) => vec!["-b:v", &t, "-maxrate", &t],
+        ("h264_amf" | "hevc_amf", RateMode::Quality) => vec!["-rc", "cqp", "-qp_i", &cq, "-qp_p", &cq, "-qp_b", &cq],
+        ("h264_amf" | "hevc_amf", RateMode::Vbr) => vec!["-rc", "vbr_peak", "-b:v", &t, "-maxrate", &m],
+        ("h264_amf" | "hevc_amf", RateMode::Cbr) => vec!["-rc", "cbr", "-b:v", &t],
+        (other, _) => return Err(format!("unknown encoder {other}; available: {}", ENCODERS.join(", "))),
+    };
+    // Each chunk carries its own headers, so the joined file plays whatever the chunks' settings were.
+    let (extra, b_frames): (Vec<&str>, bool) = match encoder {
+        "libx264" => (vec!["-preset", "medium", "-profile:v", "high", "-pix_fmt", "yuv420p", "-x264-params", if s.rate == RateMode::Cbr { "repeat-headers=1:nal-hrd=cbr" } else { "repeat-headers=1" }], true),
+        "libx265" => (vec!["-preset", "medium", "-pix_fmt", "yuv420p", "-tag:v", "hvc1"], true),
+        "h264_nvenc" => (vec!["-preset", "p5", "-profile:v", "high", "-pix_fmt", "yuv420p"], true),
+        "hevc_nvenc" => (vec!["-preset", "p5", "-profile:v", "main", "-pix_fmt", "yuv420p", "-tag:v", "hvc1"], true),
+        "h264_qsv" => (vec!["-pix_fmt", "nv12"], false),
+        "hevc_qsv" => (vec!["-pix_fmt", "nv12", "-tag:v", "hvc1"], false),
+        "h264_amf" => (vec!["-quality", "quality", "-pix_fmt", "yuv420p"], false),
+        _ => (vec!["-quality", "quality", "-pix_fmt", "yuv420p", "-tag:v", "hvc1"], false),
     };
     let mut out = vec!["-c:v".to_string(), encoder.to_string()];
-    out.extend(args.into_iter().map(String::from));
-    // A keyframe every two seconds, which is what YouTube asks for.
-    out.extend(["-g".into(), ((fps * 2.0).round() as i64).to_string()]);
+    out.extend(rate.iter().chain(extra.iter()).map(|a| a.to_string()));
+    if b_frames {
+        out.extend(["-bf".into(), s.b_frames.to_string()]);
+    }
+    // YouTube asks for a closed GOP of half the frame rate, unless the keyframe interval says otherwise.
+    let gop = if s.keyframe_frames > 0 { s.keyframe_frames } else { ((s.fps / 2.0).round() as u32).max(1) };
+    out.extend(["-g".into(), gop.to_string()]);
     out.extend(["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709"].map(String::from));
     Ok(out)
 }
@@ -148,6 +309,8 @@ pub struct MediaInfo {
 
 pub struct Chunk {
     pub args: Vec<String>,
+    /// With two passes, the run that measures the picture first. It writes no file, only its log.
+    pub first_pass: Option<Vec<String>>,
     pub frames: i64,
     pub file: PathBuf,
 }
@@ -982,8 +1145,35 @@ pub fn check(p: &Project, s: &ExportSettings) -> Result<(Frame, Frame), String> 
     if (s.width as f64 / s.height as f64 - pw / ph).abs() > 0.01 {
         return Err(format!("{}×{} is a different shape from the project ({pw}×{ph}); change the project size first", s.width, s.height));
     }
-    if !s.encoder.is_empty() && !ENCODERS.contains(&s.encoder.as_str()) {
-        return Err(format!("unknown encoder {}; available: {}", s.encoder, ENCODERS.join(", ")));
+    if !s.encoder.is_empty() {
+        match codec_of(&s.encoder) {
+            None => return Err(format!("unknown encoder {}; available: {}", s.encoder, ENCODERS.join(", "))),
+            Some(codec) if codec != s.codec => {
+                return Err(format!("{} makes {}, not {}; choose an encoder for {}", s.encoder, codec_name(codec), codec_name(s.codec), codec_name(s.codec)))
+            }
+            Some(_) => {}
+        }
+    }
+    if s.rate != RateMode::Quality && !(100..=200_000).contains(&s.bitrate_kbps) {
+        return Err("the target bitrate must be between 100 and 200000 kilobits a second".into());
+    }
+    if s.rate == RateMode::Vbr && s.max_kbps < s.bitrate_kbps {
+        return Err("the maximum bitrate must not be below the target".into());
+    }
+    if s.two_pass && s.rate != RateMode::Vbr {
+        return Err("two-pass needs variable bitrate".into());
+    }
+    if s.two_pass && !s.encoder.is_empty() && !is_software(&s.encoder) {
+        return Err("two-pass needs a software encoder, libx264 or libx265".into());
+    }
+    if s.b_frames > 4 {
+        return Err("B-frames must be between 0 and 4".into());
+    }
+    if s.keyframe_frames > 1_000 {
+        return Err("the keyframe interval must be at most 1000 frames, or 0 for automatic".into());
+    }
+    if !(32..=512).contains(&s.audio_kbps) {
+        return Err("the audio bitrate must be between 32 and 512 kilobits a second".into());
     }
     let end = p.duration();
     let (from, to) = match s.range {
@@ -1027,7 +1217,7 @@ pub fn plan(p: &Project, s: &ExportSettings, encoder: &str, text: &[TextTrack], 
     if p.sequence.clips.iter().any(|c| matches!(c.kind, ClipKind::Graphic | ClipKind::Caption) && c.props.get("blend").and_then(Value::as_str).is_some_and(|m| m != "Normal")) {
         b.warn("Blend modes on text are drawn as Normal in the export.".into());
     }
-    let video = encoder_args(encoder, s.quality, s.fps)?;
+    let video = encoder_args(encoder, s)?;
     let mut files = vec![];
     let mut chunks = vec![];
     let mut at = 0;
@@ -1047,13 +1237,31 @@ pub fn plan(p: &Project, s: &ExportSettings, encoder: &str, text: &[TextTrack], 
         let script = dir.join(format!("graph-{}.txt", chunks.len()));
         let file = dir.join(format!("chunk-{:05}.mkv", chunks.len()));
         let sound = if graph.sounds.is_empty() { "[a0]" } else { "[amix]" };
-        let mut args: Vec<String> = graph.inputs.iter().flatten().cloned().collect();
-        args.extend(["-/filter_complex".into(), path_arg(&script), "-map".into(), format!("[{}]", graph.video), "-map".into(), sound.into()]);
+        let picture = format!("[{}]", graph.video);
+        let inputs: Vec<String> = graph.inputs.iter().flatten().cloned().collect();
+        // Each chunk's log lives beside it, so the second pass of that chunk can read the first.
+        let log = dir.join(format!("pass-{}", chunks.len()));
+        let first_pass = s.two_pass.then(|| {
+            // Every filter output is mapped, or FFmpeg refuses the graph; the sound is thrown away at the null muxer.
+            let mut first = inputs.clone();
+            first.extend(["-/filter_complex".into(), path_arg(&script), "-map".into(), picture.clone(), "-map".into(), sound.into()]);
+            first.extend(video.iter().cloned());
+            first.extend(["-pass", "1", "-passlogfile"].map(String::from));
+            first.push(path_arg(&log));
+            first.extend(["-c:a", "pcm_s16le", "-f", "null", "-"].map(String::from));
+            first
+        });
+        let mut args = inputs;
+        args.extend(["-/filter_complex".into(), path_arg(&script), "-map".into(), picture, "-map".into(), sound.into()]);
         args.extend(video.iter().cloned());
+        if s.two_pass {
+            args.extend(["-pass", "2", "-passlogfile"].map(String::from));
+            args.push(path_arg(&log));
+        }
         args.extend(["-c:a", "pcm_f32le", "-f", "matroska", "-y"].map(String::from));
         args.push(path_arg(&file));
         files.push((script, graph.chains.join(";\n")));
-        chunks.push(Chunk { args, frames: to - at, file });
+        chunks.push(Chunk { args, first_pass, frames: to - at, file });
         at = to;
     }
     let list = dir.join("chunks.txt");
@@ -1064,10 +1272,16 @@ pub fn plan(p: &Project, s: &ExportSettings, encoder: &str, text: &[TextTrack], 
     let mut finish: Vec<String> = ["-f", "concat", "-safe", "0", "-auto_convert", "0", "-i"].map(String::from).into();
     finish.push(path_arg(&list));
     // The picture is copied as it is; the mixed sound is kept from clipping and encoded once.
-    finish.extend(["-c:v", "copy", "-af", "alimiter=level=0:limit=0.97", "-c:a", "aac", "-b:a", "256k", "-ar"].map(String::from));
+    finish.extend(["-c:v", "copy", "-af", "alimiter=level=0:limit=0.97", "-c:a", "aac", "-b:a"].map(String::from));
+    finish.push(format!("{}k", s.audio_kbps));
+    finish.extend(["-ac", "2", "-ar"].map(String::from));
     finish.push(SAMPLE_RATE.to_string());
     if !s.path.to_lowercase().ends_with(".mkv") {
         finish.extend(["-movflags".into(), "+faststart".into()]);
+        // Players such as Apple's only read H.265 in an MP4 when it is tagged hvc1.
+        if s.codec == Codec::Hevc {
+            finish.extend(["-tag:v".into(), "hvc1".into()]);
+        }
     }
     finish.extend(["-y".into(), s.path.clone()]);
     Ok(Plan { files, chunks, finish, total_frames: total, warnings: b.warnings })

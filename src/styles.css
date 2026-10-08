@@ -293,11 +293,17 @@ button.wide { width: 100%; padding: 7px; margin-bottom: 10px; }
 .hd .rm:hover { background: var(--danger); color: #fff; }
 
 /* Export and project settings windows */
-.export .row { grid-template-columns: 96px 1fr auto; }
+.export .row { grid-template-columns: 128px 1fr auto; }
 .export .path { grid-column: 2 / 3 !important; user-select: text; }
 .export .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
-.exporthint { color: var(--mute); margin: -2px 0 8px 102px; }
+.exporthint { color: var(--mute); margin: -2px 0 8px 134px; }
 .exportwarn { color: #e8b34b; margin-top: 8px; }
+/* The export dialog is long, so its body scrolls inside the window instead of pushing the buttons off it. */
+.modal .body.export { flex: 1 1 auto; min-height: 0; }
+.exportsec { margin: 12px 0 6px; padding-bottom: 3px; border-bottom: 1px solid var(--line); color: var(--mute); font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.exportsec:first-child { margin-top: 0; }
+.exportsummary { margin-top: 6px; padding: 8px 10px; background: #0f1115; border: 1px solid var(--line); border-radius: 5px; color: var(--text); line-height: 1.5; }
+.exportsummary div:last-child { color: var(--mute); }
 .exportfile { color: var(--mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
 .exportline { margin-top: 8px; min-height: 22px; user-select: text; }
 .exportline .bad { color: #ff7b72; }
