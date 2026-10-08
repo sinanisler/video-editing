@@ -7,6 +7,7 @@ import { LeftPanel } from "./components/LeftPanel";
 import { Preview } from "./components/Preview";
 import { RightPanel } from "./components/RightPanel";
 import { Timeline } from "./components/Timeline";
+import { initExport } from "./export";
 import { core, init, ui } from "./store";
 
 /** Files dragged in from outside the app: import them, and place them if they landed on the timeline. */
@@ -44,7 +45,9 @@ export function App() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    init().catch((e) => setError(String(e)));
+    init()
+      .then(initExport)
+      .catch((e) => setError(String(e)));
     window.addEventListener("keydown", handleKey);
     const drops = listenForFileDrops();
     return () => {

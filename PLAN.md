@@ -2,7 +2,7 @@
 
 A desktop video editor with a simplified Premiere/Resolve-style GUI where **every editing action is also an MCP tool**, so connected agents can do anything a user can.
 
-Status: milestone 1 (skeleton) is done, plus early parts of 2 and 4: media import with an interim player, and the MCP server. Next: FFmpeg sidecar, proxies and the WebCodecs compositor. The approved UX mockup is `docs/mockup.html`.
+Status: milestone 1 (skeleton) is done, plus parts of 2, 4, 5 and 8: media import with an interim player, the MCP server, frame and sound analysis for agents, editing guides served to agents, and export. Next: transcription, proxies and the WebCodecs compositor. The approved UX mockup is `docs/mockup.html`.
 
 ## Running it
 
@@ -27,12 +27,16 @@ Choices made in milestone 1 that differ from or add to the plan below:
 - The MCP server is hand-written on `tiny_http` (`src-tauri/src/mcp.rs`) instead of `rmcp`: JSON responses to POSTs on `http://127.0.0.1:7420/mcp`, no server stream. Tools and schemas live in `snn-core/src/tools.rs`; a test runs every tool. MCP tool names use underscores (`timeline_split_clip`) because clients reject dots.
 - Connect Claude Code with `claude mcp add --transport http snn-editor http://127.0.0.1:7420/mcp`.
 - Media is measured by the webview on import (or by a small MP4 header reader for agents) and played with one media element per clip. Cuts can hitch; video clips carry their own sound. Both go away with the compositor.
-- Not exposed to agents yet: frames and contact sheets, transcripts, pace and silence analysis, export, permission modes.
+- FFmpeg is found on the machine (`SNN_FFMPEG`, next to the app, the PATH, or winget's folder); it is not bundled yet. The tests that render video are skipped without it.
+- Agents can look and listen: `frames_contact_sheet`, `frames_get`, `audio_get_activity`, `timeline_get_pace` (`snn-core/src/analysis.rs`). Editing methods live in `guides/*.md` and are served by `guide_list` / `guide_get` and as MCP prompts.
+- Export does not use the compositor the plan describes, because there is none yet. `snn-core/src/export.rs` restates the preview's look (`src/look.ts`) as FFmpeg filters and renders the timeline in chunks of up to 20 seconds, joined without re-encoding. Text clips are the exception: the window draws them with its own CSS (`src/exportText.tsx`) and FFmpeg lays the images over the video. Anything added to `look.ts` must be added to `export.rs` too; the test `everything_in_the_library_renders` fails if an effect or transition cannot be rendered.
+- Known differences between export and preview: the blend modes Hue, Saturation, Color and Luminosity, and any blend mode on text, are drawn as Normal (the export reports this); a blur that clears during a transition is a cross-fade from a blurred copy; text animates at the project frame rate even when the export has a higher one.
+- Not exposed to agents yet: transcripts, permission modes.
 
 - The timeline is drawn with DOM elements for now. Move it to canvas when clip counts make it slow.
 - A clip may not overlap another on the same track; the core rejects the command. Overwrite and insert edits come in milestone 3.
 - Undo stores a full project snapshot per step (capped at 200). Fine at current sizes.
-- Clip properties, effects and transitions are stored and editable, but nothing renders them until the compositor exists.
+- The preview draws clip properties, effects and transitions with CSS (`src/look.ts`); the export renders them into the file.
 
 ## 1. Goals
 

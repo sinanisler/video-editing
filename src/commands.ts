@@ -228,6 +228,8 @@ export const COMMANDS: EditorCommand[] = [
   },
   { id: "saveas", title: "Save project as…", keys: ["Ctrl+Shift+S"], run: () => guarded(saveAs) },
   { id: "import", title: "Import media…", keys: ["Ctrl+I"], run: importMedia },
+  { id: "export", title: "Export video…", keys: ["Ctrl+E"], run: () => ui.set({ overlay: "export" }) },
+  { id: "projectsettings", title: "Project settings (size, frame rate)…", run: () => ui.set({ overlay: "project" }) },
   { id: "palette", title: "Command palette", keys: ["Ctrl+K"], run: () => ui.set({ overlay: "palette" }) },
   { id: "shortcuts", title: "Keyboard shortcuts", keys: ["?"], run: () => ui.set({ overlay: "shortcuts" }) },
 ];

@@ -8,20 +8,24 @@ mod command;
 #[cfg(test)]
 mod demo;
 mod editor;
+mod export;
 mod guides;
 mod library;
 mod model;
 mod probe;
+mod render;
 mod tools;
 
-pub use analysis::{base64, is_analysis, Analysis, Job};
+pub use analysis::{available_encoders, base64, unbase64, ffmpeg_path, is_analysis, probe_streams, Analysis, Job};
 pub use command::{apply, Command};
 pub use editor::{Editor, EditorState, LogEntry};
+pub use export::{check as check_export, plan as plan_export, presets as export_presets, AudioStreams, Chunk, ExportRange, ExportSettings, MediaInfo, Plan, Preset, Quality, TextSpan, TextTrack, ENCODERS, SAMPLE_RATE};
 pub use guides::{find_guide, guides, Guide};
 pub use library::{library, Library};
 pub use model::*;
 pub use probe::{probe_mp4, Probe};
-pub use tools::{catalog, ToolDef, INSTRUCTIONS};
+pub use render::{render, CANCELLED};
+pub use tools::{catalog, is_export, ToolDef, INSTRUCTIONS};
 
 #[cfg(test)]
 mod tests;

@@ -16,4 +16,6 @@ The guides are `guides/*.md` in this repository. When the user corrects how you 
 
 The research behind the numbers is in `SKILLS/` (first 90 seconds, first 5 minutes, and the ZindanCraft shooting plan). Read it when a guide does not cover a case.
 
+When the user wants the video file, export it with `export_start` as the guide describes; the export dialog in the app (Ctrl+E) does the same thing.
+
 To check the MCP server itself, run `node dev/mcp-smoke.mjs`. It only runs on an empty project and undoes everything it does.

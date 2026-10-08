@@ -1,3 +1,4 @@
+use crate::export::rescale_frames;
 use crate::library::{effect_names, is_effect, is_transition, transition_names, validate_property};
 use crate::model::*;
 use serde::{Deserialize, Serialize};
@@ -10,6 +11,18 @@ use serde_json::{json, Value};
 pub enum Command {
     #[serde(rename = "project.new")]
     NewProject { name: String },
+
+    /// Changes the picture size or the frame rate. A new frame rate keeps every clip at the same
+    /// moment in time, so frame numbers change.
+    #[serde(rename = "project.set_settings")]
+    SetSettings {
+        #[serde(default)]
+        width: Option<u32>,
+        #[serde(default)]
+        height: Option<u32>,
+        #[serde(default)]
+        fps: Option<f64>,
+    },
 
     /// Registers a file in the media pool. Importing the same path twice returns the existing item.
     #[serde(rename = "media.import")]
@@ -232,6 +245,34 @@ pub fn apply(p: &mut Project, cmd: &Command, actor: &str) -> R<Value> {
         Command::NewProject { name } => {
             *p = Project::new(name);
             Ok(json!({ "project": name }))
+        }
+
+        Command::SetSettings { width, height, fps } => {
+            let (w, h) = (width.unwrap_or(p.settings.width), height.unwrap_or(p.settings.height));
+            if w < 16 || h < 16 || w > 7680 || h > 7680 || w % 2 != 0 || h % 2 != 0 {
+                return Err("width and height must be even numbers between 16 and 7680".into());
+            }
+            if let Some(fps) = fps {
+                if !(1.0..=240.0).contains(fps) {
+                    return Err("the frame rate must be between 1 and 240".into());
+                }
+                // 23.976, 29.97 and 59.94 are really 24000, 30000 and 60000 over 1001.
+                let whole = fps.round();
+                let (num, den) = if (fps - whole).abs() < 0.001 {
+                    (whole as u32, 1)
+                } else if (fps - (fps * 1.001).round() / 1.001).abs() < 0.01 {
+                    ((fps * 1.001).round() as u32 * 1000, 1001)
+                } else {
+                    ((fps * 1000.0).round() as u32, 1000)
+                };
+                if (num, den) != (p.settings.fps_num, p.settings.fps_den) {
+                    rescale_frames(p, num, den);
+                }
+            }
+            p.settings.width = w;
+            p.settings.height = h;
+            let s = &p.settings;
+            Ok(json!({ "width": s.width, "height": s.height, "fps": s.fps_num as f64 / s.fps_den as f64, "duration_frames": p.duration() }))
         }
 
         Command::ImportMedia { path, name, kind, duration, width, height } => {

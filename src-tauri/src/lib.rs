@@ -1,3 +1,4 @@
+mod export;
 mod mcp;
 
 use snn_core::{Command, Editor, EditorState};
@@ -99,12 +100,48 @@ fn open_project(app: AppHandle, core: State<Core>, path: String) -> Result<Strin
     result
 }
 
+#[tauri::command(async)]
+fn export_options(app: AppHandle, core: State<Core>) -> serde_json::Value {
+    export::options(&app, &core.0)
+}
+
+#[tauri::command(async)]
+fn export_begin(app: AppHandle, core: State<Core>, exports: State<export::SharedExports>, settings: snn_core::ExportSettings, job: Option<u64>) -> Result<serde_json::Value, String> {
+    export::begin(&app, &exports, &core.0, settings, job)
+}
+
+#[tauri::command(async)]
+fn export_image(exports: State<export::SharedExports>, job: u64, name: String, data: String) -> Result<(), String> {
+    export::image(&exports, job, &name, &data)
+}
+
+#[tauri::command]
+fn export_run(app: AppHandle, core: State<Core>, exports: State<export::SharedExports>, job: u64, text: Vec<snn_core::TextTrack>) -> Result<(), String> {
+    export::run(app, exports.inner().clone(), &core.0, job, text)
+}
+
+#[tauri::command]
+fn export_fail(app: AppHandle, exports: State<export::SharedExports>, job: u64, message: String) {
+    export::fail(&app, &exports, job, message)
+}
+
+#[tauri::command]
+fn export_cancel(app: AppHandle, exports: State<export::SharedExports>) -> export::ExportStatus {
+    export::cancel(&app, &exports)
+}
+
+#[tauri::command]
+fn export_status(exports: State<export::SharedExports>) -> export::ExportStatus {
+    exports.status()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let editor: SharedEditor = Arc::new(Mutex::new(Editor::default()));
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(Core(editor.clone()))
+        .manage(export::SharedExports::default())
         .setup(move |app| {
             app.manage(mcp::start(app.handle().clone(), editor.clone()));
             Ok(())
@@ -119,7 +156,14 @@ pub fn run() {
             undo,
             redo,
             save_project,
-            open_project
+            open_project,
+            export_options,
+            export_begin,
+            export_image,
+            export_run,
+            export_fail,
+            export_cancel,
+            export_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running snn-editor");

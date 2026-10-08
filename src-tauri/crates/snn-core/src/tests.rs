@@ -195,7 +195,7 @@ fn every_catalog_tool_is_wired_up() {
         }
         // These examples are valid against the fixture and must succeed outright.
         // The analysis tools need FFmpeg and a real file; `analysis_reads_a_real_file` covers them.
-        if !matches!(tool.name, "media_remove" | "timeline_remove_marker") && !crate::is_analysis(tool.name) {
+        if !matches!(tool.name, "media_remove" | "timeline_remove_marker") && !crate::is_analysis(tool.name) && !crate::is_export(tool.name) {
             assert!(result.is_ok(), "{}: {:?}", tool.name, result);
         }
         assert_eq!(e.state().log[0].actor, "agent");
@@ -213,13 +213,21 @@ fn guides_are_listed_and_readable() {
         assert_eq!(e.call_tool("agent", "guide_get", json!({"name": g.name})).unwrap(), json!(g.text));
         // A guide must not send an agent to a tool that does not exist.
         for word in g.text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')) {
-            let prefixes = ["timeline_", "clip_", "project_", "history_", "media_", "batch_", "view_", "guide_", "library_", "frames_", "audio_"];
+            let prefixes = ["timeline_", "clip_", "project_", "history_", "media_", "batch_", "view_", "guide_", "library_", "frames_", "audio_", "export_"];
             if prefixes.iter().any(|p| word.starts_with(p) && word.len() > p.len()) {
                 assert!(catalog().iter().any(|t| t.name == word), "{} mentions unknown tool {word}", g.name);
             }
         }
     }
     assert!(e.call_tool("agent", "guide_get", json!({"name": "nope"})).unwrap_err().contains("retention-edit"));
+}
+
+#[test]
+fn base64_reads_back_what_it_wrote() {
+    for bytes in [&b""[..], b"f", b"fo", b"foo", b"foobar", &[0, 255, 254, 3, 128]] {
+        assert_eq!(crate::unbase64(&crate::base64(bytes)).unwrap(), bytes);
+    }
+    assert!(crate::unbase64("not base64!").is_err());
 }
 
 #[test]
@@ -469,4 +477,325 @@ fn speed_uses_more_source() {
     e.call_tool("user", "clip_set_property", speed(150)).unwrap();
     let right = e.call_tool("user", "timeline_split_clip", json!({"at": 100})).unwrap()["created"][0].as_str().unwrap().to_string();
     assert_eq!(e.project().clip(&right).unwrap().source_in, 150);
+}
+
+/// Export tests: they make small source files, render a project, and read pixels back.
+mod export {
+    use crate::*;
+    use serde_json::{json, Value};
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+    use std::sync::atomic::AtomicBool;
+
+    const RED: [u8; 3] = [255, 0, 0];
+    const BLUE: [u8; 3] = [0, 0, 255];
+    const GREEN: [u8; 3] = [0, 255, 0];
+
+    struct Bench {
+        dir: PathBuf,
+        e: Editor,
+    }
+
+    fn ffmpeg(args: &[&str]) -> bool {
+        Command::new(ffmpeg_path()).args(["-loglevel", "error", "-y"]).args(args).status().is_ok_and(|s| s.success())
+    }
+
+    impl Bench {
+        /// A 640×360 project at 30 fps with a red file, a blue file, and one that is red for a second and then blue.
+        /// `None` when FFmpeg is not installed.
+        fn new(name: &str) -> Option<Bench> {
+            let dir = std::env::temp_dir().join(format!("snn-export-test-{}-{name}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let file = |n: &str| dir.join(n).display().to_string();
+            let encode = ["-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac"];
+            for colour in ["red", "blue"] {
+                let picture = format!("color=c={colour}:s=640x360:r=30:d=30");
+                let made = ffmpeg(&[&["-f", "lavfi", "-i", &picture, "-f", "lavfi", "-i", "sine=frequency=440:duration=30"], &encode[..], &[&file(&format!("{colour}.mp4"))]].concat());
+                if !made {
+                    eprintln!("skipped: FFmpeg is not installed");
+                    return None;
+                }
+            }
+            let steps = "color=c=red:s=640x360:r=30:d=1[a];color=c=blue:s=640x360:r=30:d=3[b];[a][b]concat=n=2:v=1:a=0";
+            assert!(ffmpeg(&[&["-f", "lavfi", "-i", steps, "-f", "lavfi", "-i", "sine=frequency=440:duration=4"], &encode[..], &[&file("steps.mp4")]].concat()));
+            // What the window would hand over for text: an empty picture and one with a green box in the middle.
+            assert!(ffmpeg(&["-f", "lavfi", "-i", "color=c=black@0:s=640x360,format=rgba", "-frames:v", "1", &file("blank.png")]));
+            assert!(ffmpeg(&["-f", "lavfi", "-i", "color=c=black@0:s=640x360,format=rgba,drawbox=x=270:y=130:w=100:h=100:color=lime:t=fill:replace=1", "-frames:v", "1", &file("text.png")]));
+            let mut e = Editor::default();
+            e.call_tool("t", "project_set_settings", json!({"width": 640, "height": 360})).unwrap();
+            for n in ["red.mp4", "blue.mp4", "steps.mp4"] {
+                e.call_tool("t", "media_import", json!({"path": file(n)})).unwrap();
+            }
+            Some(Bench { dir, e })
+        }
+
+        fn clip(&mut self, track: &str, start: i64, duration: i64, media: &str, source_in: i64) -> String {
+            let id = self.e.project().media.iter().find(|m| m.name == media).unwrap().id.clone();
+            let args = json!({"track": track, "start": start, "duration": duration, "name": media, "kind": "video", "media": id, "source_in": source_in});
+            self.e.call_tool("t", "timeline_add_clip", args).unwrap()["clip"].as_str().unwrap().to_string()
+        }
+
+        fn set(&mut self, clip: &str, key: &str, value: Value) {
+            self.e.call_tool("t", "clip_set_property", json!({"clip": clip, "key": key, "value": value})).unwrap();
+        }
+
+        fn transition(&mut self, clip: &str, name: &str, edge: &str) {
+            self.e.call_tool("t", "clip_set_transition", json!({"clip": clip, "transition": name, "duration": 20, "edge": edge})).unwrap();
+        }
+
+        fn export(&self, name: &str, fps: f64, text: &[TextTrack]) -> (PathBuf, Plan) {
+            let path = self.dir.join(name);
+            let settings = ExportSettings {
+                path: path.display().to_string(),
+                width: 640,
+                height: 360,
+                fps,
+                quality: Quality::High,
+                encoder: String::new(),
+                range: ExportRange::Whole,
+                audio: AudioStreams::First,
+            };
+            let plan = plan_export(self.e.project(), &settings, "libx264", text, &|m| probe_streams(&m.path), &self.dir).unwrap();
+            let mut last = 0;
+            render(&plan, &AtomicBool::new(false), &mut |n| last = n).unwrap();
+            assert_eq!(last, plan.total_frames);
+            (path, plan)
+        }
+    }
+
+    impl Drop for Bench {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.dir).ok();
+        }
+    }
+
+    /// The colour at a point of one frame of a rendered file.
+    fn pixel(file: &Path, frame: i64, x: usize, y: usize) -> [u8; 3] {
+        let pick = format!("select=eq(n\\,{frame})");
+        let out = Command::new(ffmpeg_path())
+            .args(["-loglevel", "error", "-i", &file.display().to_string(), "-vf", &pick, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
+            .output()
+            .unwrap();
+        assert_eq!(out.stdout.len(), 640 * 360 * 3, "frame {frame} of {} could not be read", file.display());
+        let i = (y * 640 + x) * 3;
+        [out.stdout[i], out.stdout[i + 1], out.stdout[i + 2]]
+    }
+
+    #[track_caller]
+    fn expect(file: &Path, frame: i64, x: usize, y: usize, want: [u8; 3]) {
+        let got = pixel(file, frame, x, y);
+        let near = got.iter().zip(want).all(|(a, b)| (*a as i32 - b as i32).abs() <= 40);
+        assert!(near, "frame {frame} at {x},{y}: got {got:?}, expected about {want:?}");
+    }
+
+    /// Frames of picture and seconds of sound in a rendered file.
+    fn length(file: &Path) -> (i64, f64) {
+        let read = |stream: &str, key: &str| {
+            let out = Command::new(ffmpeg_path()).args(["-i", &file.display().to_string(), "-map", stream, "-f", "null", "-"]).output().unwrap();
+            let log = String::from_utf8_lossy(&out.stderr).into_owned();
+            log.rsplit(key).next().and_then(|s| s.split_whitespace().next().map(str::to_string)).unwrap_or_default()
+        };
+        let seconds = read("0:a", "time=").split(':').filter_map(|p| p.parse::<f64>().ok()).fold(0.0, |total, p| total * 60.0 + p);
+        (read("0:v", "frame=").parse().unwrap_or(0), seconds)
+    }
+
+    #[test]
+    fn cuts_speed_and_frame_rate() {
+        let Some(mut b) = Bench::new("cuts") else { return };
+        b.clip("V1", 0, 30, "red.mp4", 0);
+        b.clip("V1", 30, 30, "blue.mp4", 100);
+        // Twice as fast: 30 timeline frames use 60 of the file, which turns blue at its frame 30.
+        let fast = b.clip("V1", 60, 30, "steps.mp4", 0);
+        b.set(&fast, "speed", json!(200));
+        let (file, plan) = b.export("cuts.mp4", 30.0, &[]);
+        assert_eq!((plan.total_frames, plan.chunks.len()), (90, 1));
+        let (frames, seconds) = length(&file);
+        assert_eq!(frames, 90);
+        assert!((seconds - 3.0).abs() < 0.1, "{seconds}");
+        expect(&file, 10, 320, 180, RED);
+        expect(&file, 29, 320, 180, RED);
+        expect(&file, 30, 320, 180, BLUE);
+        expect(&file, 65, 320, 180, RED);
+        expect(&file, 85, 320, 180, BLUE);
+
+        // The same timeline at 60 fps has twice the frames and cuts at the same moments.
+        let (file, plan) = b.export("cuts60.mp4", 60.0, &[]);
+        assert_eq!((plan.total_frames, length(&file).0), (180, 180));
+        expect(&file, 59, 320, 180, RED);
+        expect(&file, 60, 320, 180, BLUE);
+    }
+
+    #[test]
+    fn long_timelines_are_rendered_in_chunks_without_a_seam() {
+        let Some(mut b) = Bench::new("chunks") else { return };
+        b.clip("V1", 0, 700, "red.mp4", 0);
+        b.clip("V1", 700, 500, "blue.mp4", 0);
+        let (file, plan) = b.export("long.mp4", 30.0, &[]);
+        assert_eq!((plan.chunks.len(), plan.total_frames), (2, 1200));
+        let (frames, seconds) = length(&file);
+        assert_eq!(frames, 1200);
+        assert!((seconds - 40.0).abs() < 0.1, "{seconds}");
+        // The chunks meet at frame 600; the cut is at 700.
+        for (frame, colour) in [(599, RED), (600, RED), (601, RED), (699, RED), (700, BLUE), (1199, BLUE)] {
+            expect(&file, frame, 320, 180, colour);
+        }
+    }
+
+    #[test]
+    fn layers_are_placed_cropped_and_tinted_like_the_preview() {
+        let Some(mut b) = Bench::new("look") else { return };
+        b.clip("V1", 0, 150, "red.mp4", 0);
+        // Half size, moved 160 px right: covers x 320..640, y 90..270.
+        let inset = b.clip("V2", 0, 30, "blue.mp4", 0);
+        // The same, turned a quarter: covers x 390..570, y 20..340.
+        let turned = b.clip("V2", 30, 30, "blue.mp4", 0);
+        for clip in [&inset, &turned] {
+            for (key, value) in [("zoom_x", json!(0.5)), ("zoom_y", json!(0.5)), ("pos_x", json!(160))] {
+                b.set(clip, key, value);
+            }
+        }
+        b.set(&turned, "rotation", json!(90));
+        // Left half cropped away.
+        let cropped = b.clip("V2", 60, 30, "blue.mp4", 0);
+        b.set(&cropped, "crop_left", json!(320));
+        // Half see-through.
+        let faint = b.clip("V2", 90, 30, "blue.mp4", 0);
+        b.set(&faint, "opacity", json!(50));
+        // Grey, and moved up so the red below still shows.
+        let grey = b.clip("V2", 120, 30, "blue.mp4", 0);
+        b.e.call_tool("t", "clip_add_effect", json!({"clip": grey, "effect": "Greyscale"})).unwrap();
+        b.set(&grey, "pos_y", json!(180));
+
+        let (file, plan) = b.export("look.mp4", 30.0, &[]);
+        assert!(plan.warnings.is_empty(), "{:?}", plan.warnings);
+        expect(&file, 10, 480, 180, BLUE);
+        expect(&file, 10, 300, 180, RED);
+        expect(&file, 10, 480, 60, RED);
+        expect(&file, 40, 480, 60, BLUE);
+        expect(&file, 40, 370, 180, RED);
+        expect(&file, 40, 585, 180, RED);
+        expect(&file, 70, 160, 180, RED);
+        expect(&file, 70, 480, 180, BLUE);
+        expect(&file, 100, 320, 180, [128, 0, 128]);
+        // CSS greyscale of pure blue is 7% grey.
+        expect(&file, 130, 320, 90, [18, 18, 18]);
+        expect(&file, 130, 320, 270, RED);
+    }
+
+    #[test]
+    fn transitions_text_and_blending() {
+        let Some(mut b) = Bench::new("moves") else { return };
+        b.clip("V1", 0, 30, "red.mp4", 0);
+        let dissolved = b.clip("V1", 30, 30, "blue.mp4", 0);
+        b.transition(&dissolved, "Cross dissolve", "in");
+        let pushed = b.clip("V1", 60, 30, "red.mp4", 0);
+        b.transition(&pushed, "Push left", "in");
+        let wiped = b.clip("V1", 90, 30, "blue.mp4", 0);
+        b.transition(&wiped, "Wipe right", "out");
+        // Screen blending red over blue gives magenta.
+        b.clip("V1", 120, 30, "blue.mp4", 0);
+        let screened = b.clip("V2", 120, 30, "red.mp4", 0);
+        b.set(&screened, "blend", json!("Screen"));
+        // The second span says where its pixels are, as the window does; the first leaves it to the whole frame.
+        let spans = vec![TextSpan { from: 10, to: 20, image: "text.png".into(), rect: None }, TextSpan { from: 100, to: 130, image: "text.png".into(), rect: Some([269, 131, 101, 99]) }];
+        let text = [TextTrack { track: "V3".into(), spans }];
+
+        let (file, _) = b.export("moves.mp4", 30.0, &text);
+        // Halfway through the dissolve, the old picture is still under the new one.
+        expect(&file, 40, 320, 180, [128, 0, 128]);
+        expect(&file, 55, 320, 180, BLUE);
+        // Halfway through the push the old blue fills the left half and the new red the right.
+        expect(&file, 70, 100, 180, BLUE);
+        expect(&file, 70, 540, 180, RED);
+        expect(&file, 85, 100, 180, RED);
+        // A wipe on the way out leaves black behind it from the right.
+        expect(&file, 95, 600, 180, BLUE);
+        expect(&file, 110, 100, 180, BLUE);
+        expect(&file, 110, 540, 180, [0, 0, 0]);
+        expect(&file, 135, 100, 180, [255, 0, 255]);
+        // Text shows exactly on its frames, over everything.
+        expect(&file, 9, 320, 180, RED);
+        expect(&file, 10, 320, 180, GREEN);
+        expect(&file, 19, 320, 180, GREEN);
+        expect(&file, 20, 320, 180, RED);
+        expect(&file, 125, 320, 180, GREEN);
+        expect(&file, 125, 100, 180, [255, 0, 255]);
+    }
+
+    #[test]
+    fn settings_are_checked_and_a_new_frame_rate_keeps_time() {
+        let mut e = Editor::default();
+        e.call_tool("t", "media_import", json!({"path": "C:/a.mp4", "kind": "video", "duration": 900})).unwrap();
+        let media = e.project().media[0].id.clone();
+        for (start, source) in [(0, 0), (45, 300)] {
+            e.call_tool("t", "timeline_add_clip", json!({"track": "V1", "start": start, "duration": 45, "name": "x", "kind": "video", "media": media, "source_in": source})).unwrap();
+        }
+        e.call_tool("t", "timeline_add_marker", json!({"at": 30, "label": "m"})).unwrap();
+        let after = e.call_tool("t", "project_set_settings", json!({"fps": 60})).unwrap();
+        assert_eq!((after["fps"].clone(), after["duration_frames"].clone()), (json!(60.0), json!(180)));
+        let p = e.project();
+        let spans: Vec<(i64, i64, i64)> = p.sequence.clips.iter().map(|c| (c.start, c.duration, c.source_in)).collect();
+        assert_eq!(spans, [(0, 90, 0), (90, 90, 600)]);
+        assert_eq!((p.media[0].duration, p.sequence.markers[0].at), (1800, 60));
+        e.call_tool("t", "history_undo", json!({})).unwrap();
+        assert_eq!(e.project().duration(), 90);
+        e.call_tool("t", "project_set_settings", json!({"fps": 29.97})).unwrap();
+        assert_eq!((e.project().settings.fps_num, e.project().settings.fps_den), (30000, 1001));
+        assert!(e.call_tool("t", "project_set_settings", json!({"width": 641})).is_err());
+
+        let s = |path: &str, width, height| ExportSettings {
+            path: path.into(),
+            width,
+            height,
+            fps: 30.0,
+            quality: Quality::Standard,
+            encoder: String::new(),
+            range: ExportRange::Whole,
+            audio: AudioStreams::First,
+        };
+        let p = e.project();
+        assert!(check_export(p, &s("out.mp4", 1920, 1080)).unwrap_err().contains("full path"));
+        assert!(check_export(p, &s("C:/out.avi", 1920, 1080)).unwrap_err().contains(".mp4"));
+        assert!(check_export(p, &s("C:/out.mp4", 1080, 1920)).unwrap_err().contains("different shape"));
+        assert!(check_export(p, &s("C:/out.mp4", 1280, 720)).unwrap_err().contains("is missing"));
+        assert!(check_export(&Project::new("empty"), &s("C:/out.mp4", 1280, 720)).unwrap_err().contains("nothing on the timeline"));
+        let sizes: Vec<(u32, u32)> = export_presets(p).iter().map(|x| (x.width, x.height)).collect();
+        assert_eq!(sizes, [(1920, 1080), (1920, 1080), (1920, 1080), (2560, 1440), (1280, 720)]);
+    }
+
+    /// Every transition and effect in the library must come out as filters FFmpeg accepts.
+    #[test]
+    fn everything_in_the_library_renders() {
+        let Some(mut b) = Bench::new("library") else { return };
+        let lib = library();
+        let mut at = 0;
+        for (i, t) in lib.transitions.iter().enumerate() {
+            let clip = b.clip("V1", at, 16, if i % 2 == 0 { "red.mp4" } else { "blue.mp4" }, 0);
+            b.e.call_tool("t", "clip_set_transition", json!({"clip": clip, "transition": t.name, "duration": 6})).unwrap();
+            b.e.call_tool("t", "clip_set_transition", json!({"clip": clip, "transition": t.name, "duration": 6, "edge": "out"})).unwrap();
+            at += 16;
+        }
+        let transitions_end = at;
+        for fx in &lib.effects {
+            let clip = b.clip("V1", at, 6, "steps.mp4", 20);
+            b.e.call_tool("t", "clip_add_effect", json!({"clip": clip, "effect": fx.name})).unwrap();
+            at += 6;
+        }
+        // An inset with everything on it at once, tilted, flipped and faded.
+        let inset = b.clip("V2", transitions_end, 30, "blue.mp4", 0);
+        for fx in ["Rounded corners", "Border", "Drop shadow", "Vignette", "Shake", "Zoom punch"] {
+            b.e.call_tool("t", "clip_add_effect", json!({"clip": inset, "effect": fx})).unwrap();
+        }
+        let props = [("zoom_x", json!(0.4)), ("zoom_y", json!(0.4)), ("pos_x", json!(-150)), ("pos_y", json!(60)), ("pitch", json!(20)), ("yaw", json!(-25))];
+        let more = [("flip_h", json!(true)), ("anchor_x", json!(40)), ("crop_top", json!(30)), ("opacity", json!(80)), ("blend", json!("Hue"))];
+        let sound = [("volume", json!(-6)), ("fade_in", json!(0.3)), ("fade_out", json!(0.3)), ("speed", json!(50))];
+        for (key, value) in props.into_iter().chain(more).chain(sound) {
+            b.set(&inset, key, value);
+        }
+        let (file, plan) = b.export("library.mp4", 30.0, &[]);
+        assert_eq!(length(&file).0, at);
+        assert_eq!(plan.warnings, ["Blend mode Hue is drawn as Normal in the export."]);
+        // The glitch and whoosh clips are back to a plain picture once their transitions are over.
+        expect(&file, 8, 320, 180, RED);
+    }
 }

@@ -1,0 +1,60 @@
+<!doctype html>
+<!--
+  Draws export text pictures in an ordinary browser and shows them on a checked background, so the
+  result can be compared with the preview (and screenshotted headlessly) without the app.
+  Open http://localhost:1420/dev/text-export.html while `npm run dev` is running.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>snn-editor text export</title>
+    <style>
+      body { margin: 0; background: #222; color: #ccc; font: 13px Consolas, monospace; }
+      figure { margin: 8px; display: inline-block; }
+      img { display: block; width: 620px; background: repeating-conic-gradient(#555 0 25%, #777 0 50%) 0 0 / 24px 24px; }
+    </style>
+  </head>
+  <body>
+    <div id="out">working…</div>
+    <script type="module">
+      import "/src/styles.css";
+      import { renderText } from "/src/exportText.tsx";
+      const library = await (await fetch("/dev/library.json")).json();
+      const clip = (id, track, start, duration, kind, extra = {}) => ({
+        id, track, start, duration, source_in: 0, name: id, kind, media: null, text: null, template: null,
+        props: {}, effects: [], transition_in: null, transition_out: null, last_actor: null, ...extra,
+      });
+      const track = (id, kind) => ({ id, name: id, kind, locked: false, muted: false, hidden: false });
+      const project = {
+        version: 1, name: "Text", media: [], settings: { width: 1920, height: 1080, fps_num: 30, fps_den: 1 },
+        sequence: {
+          name: "S", in_point: null, out_point: null, markers: [],
+          tracks: [track("T1", "caption"), track("V3", "video"), track("V2", "video"), track("V1", "video")],
+          clips: [
+            clip("title", "V3", 0, 30, "graphic", { template: "title", text: "MINECRAFT'I RPG YAPTIM", props: { font: "Impact", color: "#ffcc00", stroke_size: 10, font_size: 80, pos_y: 200, rotation: -4 } }),
+            clip("sub", "V3", 30, 30, "graphic", { template: "subscribe", text: "ABONE OL", transition_in: { name: "Zoom in", duration: 10 } }),
+            clip("chap", "V3", 60, 30, "graphic", { template: "chapter", text: "CÜCELER KÖYÜ" }),
+            clip("count", "V2", 0, 90, "graphic", { template: "counter", text: "TIER 1 · KAT 2 / 6" }),
+            clip("lower", "V2", 90, 30, "graphic", { template: "lower", text: "atarikafa", props: { opacity: 70 } }),
+            clip("cap1", "T1", 0, 15, "caption", { text: "ÖLÜRSEM", props: { stroke_size: 12 } }),
+            clip("cap2", "T1", 15, 15, "caption", { text: "HER ŞEYİMİ", props: { stroke_size: 12, color: "#ff5555" } }),
+          ],
+        },
+      };
+      const shown = [];
+      const tracks = await renderText(project, library, { width: 1280, height: 720 }, { from: 0, to: 120 },
+        async (name, png) => shown.push({ name, url: URL.createObjectURL(png), bytes: png.size }), () => {});
+      const out = document.getElementById("out");
+      out.textContent = "";
+      const pre = document.createElement("pre");
+      pre.textContent = tracks.map((t) => `${t.track}: ${t.spans.map((s) => `${s.from}-${s.to} ${s.image} [${s.rect}]`).join(", ")}`).join("\n");
+      out.append(pre);
+      for (const s of shown) {
+        const fig = document.createElement("figure");
+        fig.innerHTML = `<img src="${s.url}"><figcaption>${s.name} · ${s.bytes} bytes</figcaption>`;
+        out.append(fig);
+      }
+      document.title = "done";
+    </script>
+  </body>
+</html>

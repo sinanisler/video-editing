@@ -252,3 +252,20 @@ button.wide { width: 100%; padding: 7px; margin-bottom: 10px; }
 .hd .rm { display: none; }
 .hd:hover .rm { display: block; }
 .hd .rm:hover { background: var(--danger); color: #fff; }
+
+/* Export and project settings windows */
+.export .row { grid-template-columns: 96px 1fr auto; }
+.export .path { grid-column: 2 / 3 !important; user-select: text; }
+.export .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.exporthint { color: var(--mute); margin: -2px 0 8px 102px; }
+.exportwarn { color: #e8b34b; margin-top: 8px; }
+.exportfile { color: var(--mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.exportline { margin-top: 8px; min-height: 22px; user-select: text; }
+.exportline .bad { color: #ff7b72; }
+.bar { height: 10px; background: #0f1115; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; margin-top: 10px; }
+.bar i { display: block; height: 100%; background: var(--accent); transition: width .2s linear; }
+.bar i.failed, .bar i.cancelled { background: var(--dim); }
+.exportbadge { cursor: pointer; color: var(--text); }
+.exportbadge.failed { color: #ff7b72; }
+#status .link { cursor: pointer; }
+#status .link:hover { color: var(--text); }

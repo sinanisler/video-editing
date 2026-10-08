@@ -58,6 +58,7 @@ The order matters because removing time moves everything after it, on every unlo
 6. **Accents.** A zoom punch on a reaction or a reveal, a whoosh transition on teaser cuts, a small greyscale inset for a flashback two to four times a video. When the player talks for more than about 5 seconds over a view where nothing changes, put what they are talking about on screen: an inset of the item, the boss or the earlier moment. Hold an item tooltip or recipe screen about 2 seconds, then cut to the item in use. Cut a death screen tight and keep the reaction after it.
 7. **Pacing check** (`pacing-check`). Measure, fix the slow minutes, report.
 8. **Hand over.** Put a marker wherever you were unsure, show the user the opening with `view_set`, and say in plain words what you changed and what you could not check.
+9. **Export, when the user asks for the file.** `export_start` with the `youtube_1080p60` preset for gameplay recorded at 60 fps, then `export_get_status` until it is done. Use `draft_720p` for a quick copy to review. Pass `audio: "all"` when the recording keeps the microphone on its own audio stream, or the voice will be missing. Report any warnings the status lists.
 
 ## After the video is published
 
@@ -72,4 +73,5 @@ The retention graph in YouTube Studio shows where viewers left. When the user br
 - Read with `from`/`to` once the timeline has many pieces; the whole state gets large.
 - `history_undo` undoes the newest change, whoever made it. Check `history_list` first and only undo your own.
 - Never call `project_new`.
-- Effects, speed and transitions are stored exactly, but the preview is an interim one. Tell the user to look at anything that depends on how an effect renders.
+- The exported file is the reference for how an edit looks and sounds. The preview is an interim one: it can hitch at cuts and plays only the first audio stream of a file.
+- The frame tools show footage without effects, cards or captions. To check those, export a draft of the range with `range: "in_out"` and ask the user to look.

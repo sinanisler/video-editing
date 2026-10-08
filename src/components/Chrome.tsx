@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { COMMANDS, runCommand } from "../commands";
 import { core, ui } from "../store";
 import { fpsOf } from "../util";
+import { ExportBadge, ExportDialog, ProjectDialog } from "./Export";
 
 export function TopBar() {
   const s = core.use((x) => x.state)!;
@@ -14,6 +15,7 @@ export function TopBar() {
       <button className="ghost" title="New project (Ctrl+N)" onClick={() => runCommand("new")}>New</button>
       <button className="ghost" title="Open project (Ctrl+O)" onClick={() => runCommand("open")}>Open</button>
       <button className="ghost" title="Save project (Ctrl+S)" onClick={() => runCommand("save")}>Save</button>
+      <button className="ghost" title="Export video (Ctrl+E)" onClick={() => runCommand("export")}>Export</button>
       <button className="ghost" title="Keyboard shortcuts (?)" onClick={() => runCommand("shortcuts")}>Shortcuts</button>
       <span className="proj" title={s.path ?? "Not saved to a file yet"}>
         <b>{s.project.name}</b> · {s.project.sequence.name}
@@ -44,8 +46,9 @@ export function StatusBar() {
       <span>{s.dirty ? "○ Unsaved changes" : s.path ? "● Saved" : "● No changes"}</span>
       <span>History: {s.history_len}</span>
       <span>{sequence.clips.length} clips</span>
+      <ExportBadge />
       <span className="sp" />
-      <span>
+      <span className="link" title="Project settings" onClick={() => runCommand("projectsettings")}>
         {settings.width}×{settings.height} · {fpsOf(s.project)} fps
       </span>
       <span>
@@ -132,7 +135,7 @@ export function Overlays() {
     <>
       {overlay && (
         <div className="ov" onPointerDown={(e) => e.target === e.currentTarget && ui.set({ overlay: null })}>
-          {overlay === "palette" ? <Palette /> : <Shortcuts />}
+          {overlay === "palette" ? <Palette /> : overlay === "export" ? <ExportDialog /> : overlay === "project" ? <ProjectDialog /> : <Shortcuts />}
         </div>
       )}
       <div id="toast" className={toast ? "show" : ""}>{toast}</div>

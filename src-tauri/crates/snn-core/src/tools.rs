@@ -32,7 +32,12 @@ one track cannot overlap: a command that would overlap fails and changes nothing
 timeline_get_state, and use batch_apply to make several edits as one undo step. The tools say what is possible, not \
 what makes a good edit: before editing for a purpose, call guide_list and read the guide that fits with guide_get. \
 You can look at the footage: frames_contact_sheet and frames_get return pictures, and audio_get_activity finds silences \
-and the loudest moments. Look before you cut.";
+and the loudest moments. Look before you cut. export_start renders the timeline to a video file.";
+
+/// Tools the app itself answers, because an export needs the window. See the MCP server.
+pub fn is_export(name: &str) -> bool {
+    name.starts_with("export_")
+}
 
 fn obj(properties: Value, required: &[&str]) -> Value {
     json!({ "type": "object", "properties": properties, "required": required, "additionalProperties": false })
@@ -158,6 +163,44 @@ pub fn catalog() -> Vec<ToolDef> {
             ),
             json!({ "media": "media0" }),
         ),
+        read(
+            "export_list_presets",
+            "Ready-made export settings (size, frame rate, quality), the encoders this machine has, and a suggested \
+             output path.",
+            obj(json!({}), &[]),
+            json!({}),
+        ),
+        read(
+            "export_get_status",
+            "How the export is doing: state (idle, preparing, rendering, done, failed, cancelled), frames done and \
+             total, percent, seconds so far, any error, and warnings about things the file shows differently from \
+             the preview.",
+            obj(json!({}), &[]),
+            json!({}),
+        ),
+        def(
+            "export_start",
+            "Render the timeline to a video file, as it looks in the preview: cuts, layers, effects, transitions, \
+             cards, captions and sound. Returns at once; follow it with export_get_status. One export runs at a \
+             time. A preset fills in whatever you leave out; the size must have the project's shape. The project \
+             itself is not changed.",
+            obj(
+                json!({
+                    "path": text("Full path of the file to write, ending in .mp4, .mov or .mkv. Default: the suggested path from export_list_presets."),
+                    "preset": text("Preset id from export_list_presets; default project"),
+                    "width": { "type": "integer", "minimum": 16 },
+                    "height": { "type": "integer", "minimum": 16 },
+                    "fps": { "type": "number", "minimum": 1, "maximum": 240 },
+                    "quality": { "type": "string", "enum": ["high", "standard", "small"] },
+                    "encoder": text("One of the encoders from export_list_presets; default the best available"),
+                    "range": { "type": "string", "enum": ["whole", "in_out"], "description": "in_out renders only between the in and out points" },
+                    "audio": { "type": "string", "enum": ["first", "all"], "description": "all mixes every audio stream of each file, for recordings with the microphone on its own stream; the preview plays only the first" },
+                }),
+                &[],
+            ),
+            json!({ "preset": "youtube_1080p60", "path": "C:/Videos/episode-1.mp4" }),
+        ),
+        def("export_cancel", "Stop the running export and delete what it wrote.", obj(json!({}), &[]), json!({})),
         read("media_list", "Files in the media pool, with id, path, kind, length in frames and size.", obj(json!({}), &[]), json!({})),
         read(
             "history_list",
@@ -196,6 +239,19 @@ pub fn catalog() -> Vec<ToolDef> {
             "Replace the open project with an empty one. Unsaved work in the app is lost unless the user undoes this.",
             obj(json!({ "name": text("Project name") }), &["name"]),
             json!({ "name": "Untitled" }),
+        ),
+        def(
+            "project_set_settings",
+            "Change the project's picture size or frame rate. Changing the frame rate keeps every clip at the same              moment, so all frame numbers change: read the timeline again afterwards. Use 60 for gameplay recorded at              60 fps.",
+            obj(
+                json!({
+                    "width": { "type": "integer", "minimum": 16, "description": "Pixels, even" },
+                    "height": { "type": "integer", "minimum": 16, "description": "Pixels, even" },
+                    "fps": { "type": "number", "minimum": 1, "maximum": 240, "description": "Frames per second, for example 30, 60 or 29.97" },
+                }),
+                &[],
+            ),
+            json!({ "fps": 60 }),
         ),
         def(
             "media_import",
@@ -391,6 +447,11 @@ impl Editor {
     pub fn call_tool(&mut self, actor: &str, name: &str, args: Value) -> Result<Value, String> {
         let args = if args.is_null() { json!({}) } else { args };
         let tool = catalog().into_iter().find(|t| t.name == name).ok_or_else(|| format!("unknown tool {name}"))?;
+        if is_export(name) {
+            let result = Err("exports run in the app window; call this tool over MCP".to_string());
+            self.record(actor, internal(name), args, &result);
+            return result;
+        }
         if is_analysis(name) {
             // The MCP server runs these itself so the editor is not held while FFmpeg works.
             let result = self.analysis_job(name, &args).and_then(|job| job.run());
@@ -430,6 +491,11 @@ impl Editor {
             }
             _ => self.execute(actor, to_command(name, args)?),
         }
+    }
+
+    /// Notes a tool the app answered itself in the activity log.
+    pub fn log_tool(&mut self, actor: &str, name: &str, args: Value, result: &Result<Value, String>) {
+        self.record(actor, internal(name), args, result);
     }
 
     fn read_tool(&self, name: &str, args: &Value) -> Result<Value, String> {

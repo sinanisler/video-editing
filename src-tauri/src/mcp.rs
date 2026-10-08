@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::Read;
 use std::sync::atomic::{AtomicU64, Ordering};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tiny_http::{Header, Method, Request, Response, Server};
 
 pub const PORT: u16 = 7420;
@@ -113,6 +113,22 @@ fn handle_message(ctx: &mut Ctx, msg: &Value, session: Option<&str>) -> (Option<
                 return (Some(rpc_error(id, -32602, "tools/call needs a tool name")), None);
             };
             let actor = session.and_then(|s| ctx.sessions.get(s)).cloned().unwrap_or_else(|| "agent".into());
+            if snn_core::is_export(name) {
+                let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
+                let exports = ctx.app.state::<crate::export::SharedExports>();
+                let result = crate::export::tool(ctx.app, &exports, ctx.editor, name, &arguments);
+                // An agent asks for the status many times a minute; that would push everything else out of the log.
+                if name != "export_get_status" {
+                    let mut editor = ctx.editor.lock().unwrap();
+                    editor.log_tool(&actor, name, arguments, &result);
+                    publish(ctx.app, &editor);
+                }
+                let (text, is_error) = match result {
+                    Ok(v) => (serde_json::to_string_pretty(&v).unwrap_or_default(), false),
+                    Err(e) => (e, true),
+                };
+                return (ok(json!({ "content": [{ "type": "text", "text": text }], "isError": is_error })), None);
+            }
             if snn_core::is_analysis(name) {
                 return (ok(analyse(ctx, &actor, name, params.get("arguments").cloned().unwrap_or(json!({})))), None);
             }

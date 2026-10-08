@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useSyncExternalStore } from "react";
+import type { ExportStatus } from "./export";
 import type { Live } from "./look";
 import { unimplemented } from "./look";
 import type { EditorState, Library, McpStatus } from "./types";
@@ -25,14 +26,15 @@ function createStore<T extends object>(initial: T) {
 }
 
 /** Project state. Owned by the Rust core; this is a read-only copy. */
-export const core = createStore<{ state: EditorState | null; mcp: McpStatus | null; library: Library | null }>({
+export const core = createStore<{ state: EditorState | null; mcp: McpStatus | null; library: Library | null; exportStatus: ExportStatus | null }>({
   state: null,
   mcp: null,
   library: null,
+  exportStatus: null,
 });
 
 export type Tool = "select" | "razor";
-export type Overlay = "palette" | "shortcuts" | null;
+export type Overlay = "palette" | "shortcuts" | "export" | "project" | null;
 
 /** View state that is not part of the project. */
 export const ui = createStore({

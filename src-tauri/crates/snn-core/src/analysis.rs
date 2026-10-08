@@ -5,10 +5,12 @@
 //! turns the arguments into a self-contained [`Job`], and [`Job::run`] does the work.
 
 use crate::editor::Editor;
+use crate::export::{MediaInfo, ENCODERS};
 use crate::model::*;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
+use std::sync::OnceLock;
 
 pub const ANALYSIS_TOOLS: [&str; 3] = ["frames_get", "frames_contact_sheet", "audio_get_activity"];
 
@@ -173,7 +175,7 @@ impl Editor {
 }
 
 /// Where FFmpeg is: `SNN_FFMPEG`, next to the app, on the PATH, or where winget puts it.
-fn ffmpeg() -> PathBuf {
+pub fn ffmpeg_path() -> PathBuf {
     let exe = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
     if let Some(path) = std::env::var_os("SNN_FFMPEG").map(PathBuf::from).filter(|p| p.is_file()) {
         return path;
@@ -198,9 +200,10 @@ fn ffmpeg() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(exe))
 }
 
-fn run(args: Vec<String>) -> Result<Output, String> {
-    let mut cmd = Command::new(ffmpeg());
-    cmd.args(["-hide_banner", "-nostats", "-nostdin"]).args(args).stdin(Stdio::null());
+/// FFmpeg, set up to run quietly from inside a window.
+pub(crate) fn ffmpeg_command() -> Command {
+    let mut cmd = Command::new(ffmpeg_path());
+    cmd.args(["-hide_banner", "-nostats", "-nostdin"]).stdin(Stdio::null());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -208,7 +211,11 @@ fn run(args: Vec<String>) -> Result<Output, String> {
         // Labels are drawn with a font named by file, and a Windows path has a colon the filter syntax trips on.
         cmd.current_dir(std::env::var_os("WINDIR").map(PathBuf::from).unwrap_or_else(|| "C:/Windows".into()).join("Fonts"));
     }
-    cmd.output().map_err(|e| format!("could not run FFmpeg ({e}); install it (winget install Gyan.FFmpeg) or point SNN_FFMPEG at ffmpeg.exe"))
+    cmd
+}
+
+fn run(args: Vec<String>) -> Result<Output, String> {
+    ffmpeg_command().args(args).output().map_err(|e| format!("could not run FFmpeg ({e}); install it (winget install Gyan.FFmpeg) or point SNN_FFMPEG at ffmpeg.exe"))
 }
 
 /// The last lines FFmpeg printed, which is where it says what went wrong.
@@ -340,6 +347,54 @@ impl Job {
             }
         }
     }
+}
+
+/// How many audio streams a file has, so an export does not ask for sound that is not there.
+pub fn probe_streams(path: &str) -> MediaInfo {
+    // Naming no output makes FFmpeg list the file's streams and stop.
+    let log = run(vec!["-i".into(), path.into()]).map(|out| String::from_utf8_lossy(&out.stderr).into_owned()).unwrap_or_default();
+    MediaInfo { audio_streams: log.lines().filter(|l| l.trim_start().starts_with("Stream #0:") && l.contains("Audio:")).count() }
+}
+
+/// The encoders from [`ENCODERS`] that work on this machine, best first. Each is tried once on a
+/// blank picture, because FFmpeg lists graphics-card encoders whether or not the card is there.
+pub fn available_encoders() -> &'static [String] {
+    static FOUND: OnceLock<Vec<String>> = OnceLock::new();
+    FOUND.get_or_init(|| {
+        let works = |encoder: &str| {
+            let args = ["-f", "lavfi", "-i", "color=s=256x256:r=30:d=0.2", "-c:v", encoder, "-f", "null", "-"];
+            run(args.map(String::from).into()).is_ok_and(|out| out.status.success())
+        };
+        ENCODERS.iter().filter(|e| works(e)).map(|e| e.to_string()).collect()
+    })
+}
+
+/// Reads standard base64, as the window sends the pictures it draws.
+pub fn unbase64(text: &str) -> Result<Vec<u8>, String> {
+    let mut out = Vec::with_capacity(text.len() / 4 * 3);
+    let (mut bits, mut count) = (0u32, 0);
+    for b in text.bytes().filter(|b| *b != b'=' && !b.is_ascii_whitespace()) {
+        let value = match b {
+            b'A'..=b'Z' => b - b'A',
+            b'a'..=b'z' => b - b'a' + 26,
+            b'0'..=b'9' => b - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return Err("the picture data is not base64".into()),
+        };
+        bits = bits << 6 | value as u32;
+        count += 1;
+        if count == 4 {
+            out.extend([(bits >> 16) as u8, (bits >> 8) as u8, bits as u8]);
+            (bits, count) = (0, 0);
+        }
+    }
+    match count {
+        2 => out.push((bits >> 4) as u8),
+        3 => out.extend([(bits >> 10) as u8, (bits >> 2) as u8]),
+        _ => {}
+    }
+    Ok(out)
 }
 
 /// Standard base64, for sending a picture inside a JSON response.

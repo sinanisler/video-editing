@@ -3,7 +3,8 @@ import { runCommand } from "../commands";
 import { clipGain, clipLook, outgoingLook, presence, reader, textLook, transitionLook } from "../look";
 import { assetUrl } from "../media";
 import { commitProps, core, previewProps, setPlaying, toast, ui } from "../store";
-import type { Clip, MediaItem } from "../types";
+import type { Live } from "../look";
+import type { Clip, Library, MediaItem, Project } from "../types";
 import { clamp, clipEnd, fpsOf, hue, timecode } from "../util";
 
 const SNAP_PX = 8;
@@ -75,12 +76,73 @@ function Graphic({ c }: { c: Clip }) {
   }
 }
 
-interface Shown {
+export interface Shown {
   c: Clip;
   /** Timeline frame to draw the clip at. */
   frame: number;
   /** A previous clip held on its last frame under an incoming transition: its name and progress. */
   leaving?: { name: string; t: number };
+}
+
+/** What is on screen at `frame`: bottom track first, so higher tracks draw on top. Hidden tracks are left out. */
+export function shownAt(p: Project, frame: number): Shown[] {
+  const { tracks, clips } = p.sequence;
+  const shown: Shown[] = [];
+  for (const t of [...tracks].reverse()) {
+    if (t.kind === "audio" || t.hidden) continue;
+    const c = clips.find((x) => x.track === t.id && frame >= x.start && frame < clipEnd(x));
+    if (!c) continue;
+    const pr = presence(c, frame);
+    const previous = pr.edge === "in" ? clips.find((x) => x.track === t.id && clipEnd(x) === c.start) : undefined;
+    if (previous && pr.name) shown.push({ c: previous, frame: clipEnd(previous) - 1, leaving: { name: pr.name, t: pr.t } });
+    shown.push({ c, frame });
+  }
+  return shown;
+}
+
+/** One clip drawn on the stage. The export draws text clips with this same component, so they come out as they look here. */
+export function LayerView({ s, p, lib, live }: { s: Shown; p: Project; lib: Library; live: Live | null }) {
+  const { c, frame: f, leaving } = s;
+  const fps = fpsOf(p);
+  const r = reader(c, lib, live);
+  const look = clipLook(c, f, p, r);
+  const pr = presence(c, f);
+  const hasPrevious = p.sequence.clips.some((x) => x.track === c.track && clipEnd(x) === c.start);
+  const tr = leaving ? { style: outgoingLook(leaving.name, leaving.t) } : transitionLook(pr, hasPrevious, f);
+  const m = p.media.find((x) => x.id === c.media);
+  const isText = c.kind === "graphic" || c.kind === "caption";
+  return (
+    <div className="layer" style={look.outer}>
+      <div className="layer" style={tr.style}>
+        <div className="layer" data-frame="1" style={look.frame}>
+          {/* Pictures are grabbed by their crop window; text by the text itself. */}
+          <div className="cropbox" style={look.crop} {...(isText || leaving ? null : { "data-hit": c.id })}>
+            <div className="content" style={{ ...look.content, ...(isText ? textLook(r) : null) }}>
+              {c.kind === "graphic" ? (
+                <Graphic c={c} />
+              ) : c.kind === "caption" ? (
+                <div className="g-caption">
+                  <span data-hit={c.id}>{c.text}</span>
+                </div>
+              ) : m?.kind === "image" ? (
+                <img src={assetUrl(m.path)} draggable={false} />
+              ) : m ? (
+                <Media c={c} m={m} fps={fps} frame={f} frozen={!!leaving} gain={leaving ? 0 : clipGain(c, f, fps, r)} />
+              ) : (
+                <div className="missing" style={{ background: `linear-gradient(135deg,hsl(${hue(c.name)} 45% 28%),hsl(${(hue(c.name) + 50) % 360} 50% 14%))` }}>
+                  {c.name}
+                  <small>no media</small>
+                </div>
+              )}
+            </div>
+            {look.vignette > 0 && <div className="vignette" style={{ opacity: look.vignette }} />}
+            {look.border && <div className="edgeline" style={{ boxShadow: look.border }} />}
+          </div>
+        </div>
+      </div>
+      {tr.overlay && <div className="layer" style={{ background: tr.overlay.color, opacity: tr.overlay.opacity }} />}
+    </div>
+  );
 }
 
 /** Where the selected clip's grab box sits inside its (untransformed) frame, as percentages of the stage, so it survives a resize. */
@@ -109,17 +171,7 @@ function Stage() {
   const at = (track: string) => clips.find((c) => c.track === track && frame >= c.start && frame < clipEnd(c));
   const media = (c: Clip) => p.media.find((x) => x.id === c.media);
 
-  // Bottom track first, so higher tracks draw on top. Hidden tracks are left out.
-  const shown: Shown[] = [];
-  for (const t of [...tracks].reverse()) {
-    if (t.kind === "audio" || t.hidden) continue;
-    const c = at(t.id);
-    if (!c) continue;
-    const pr = presence(c, frame);
-    const previous = pr.edge === "in" ? clips.find((x) => x.track === t.id && clipEnd(x) === c.start) : undefined;
-    if (previous && pr.name) shown.push({ c: previous, frame: clipEnd(previous) - 1, leaving: { name: pr.name, t: pr.t } });
-    shown.push({ c, frame });
-  }
+  const shown = shownAt(p, frame);
   const sounding = tracks.filter((t) => t.kind === "audio" && !t.muted).map((t) => at(t.id)).filter((c): c is Clip => !!c);
 
   // The transform box shows for a single selected clip that is on screen now.
@@ -217,47 +269,9 @@ function Stage() {
   return (
     <div id="stagebox" onPointerDown={onPointerDown}>
       <div id="stage" ref={stage}>
-        {shown.map(({ c, frame: f, leaving }) => {
-          const r = reader(c, lib, live);
-          const look = clipLook(c, f, p, r);
-          const pr = presence(c, f);
-          const hasPrevious = clips.some((x) => x.track === c.track && clipEnd(x) === c.start);
-          const tr = leaving ? { style: outgoingLook(leaving.name, leaving.t) } : transitionLook(pr, hasPrevious, f);
-          const m = media(c);
-          const isText = c.kind === "graphic" || c.kind === "caption";
-          return (
-            <div key={c.id} className="layer" style={look.outer}>
-              <div className="layer" style={tr.style}>
-                <div className="layer" data-frame="1" style={look.frame}>
-                  {/* Pictures are grabbed by their crop window; text by the text itself. */}
-                  <div className="cropbox" style={look.crop} {...(isText || leaving ? null : { "data-hit": c.id })}>
-                    <div className="content" style={{ ...look.content, ...(isText ? textLook(r) : null) }}>
-                      {c.kind === "graphic" ? (
-                        <Graphic c={c} />
-                      ) : c.kind === "caption" ? (
-                        <div className="g-caption">
-                          <span data-hit={c.id}>{c.text}</span>
-                        </div>
-                      ) : m?.kind === "image" ? (
-                        <img src={assetUrl(m.path)} draggable={false} />
-                      ) : m ? (
-                        <Media c={c} m={m} fps={fps} frame={f} frozen={!!leaving} gain={leaving ? 0 : clipGain(c, f, fps, r)} />
-                      ) : (
-                        <div className="missing" style={{ background: `linear-gradient(135deg,hsl(${hue(c.name)} 45% 28%),hsl(${(hue(c.name) + 50) % 360} 50% 14%))` }}>
-                          {c.name}
-                          <small>no media</small>
-                        </div>
-                      )}
-                    </div>
-                    {look.vignette > 0 && <div className="vignette" style={{ opacity: look.vignette }} />}
-                    {look.border && <div className="edgeline" style={{ boxShadow: look.border }} />}
-                  </div>
-                </div>
-              </div>
-              {tr.overlay && <div className="layer" style={{ background: tr.overlay.color, opacity: tr.overlay.opacity }} />}
-            </div>
-          );
-        })}
+        {shown.map((s) => (
+          <LayerView key={s.c.id} s={s} p={p} lib={lib} live={live} />
+        ))}
         {sounding.map((c) => {
           const m = media(c);
           return m && <Media key={c.id} c={c} m={m} fps={fps} frame={frame} frozen={false} gain={clipGain(c, frame, fps, reader(c, lib, live))} />;
