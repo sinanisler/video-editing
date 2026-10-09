@@ -1,72 +1,72 @@
 {
   "effects": [
     {
-      "amount": 100.0,
+      "amount": 100,
       "hint": "Black and white",
       "name": "Greyscale"
     },
     {
-      "amount": 100.0,
+      "amount": 100,
       "hint": "Warm brown tone",
       "name": "Sepia"
     },
     {
-      "amount": 100.0,
+      "amount": 100,
       "hint": "Negative colours",
       "name": "Invert"
     },
     {
-      "amount": 30.0,
+      "amount": 30,
       "hint": "Soft focus",
       "name": "Blur"
     },
     {
-      "amount": 65.0,
+      "amount": 65,
       "hint": "Darker below 50, brighter above",
       "name": "Brightness"
     },
     {
-      "amount": 65.0,
+      "amount": 65,
       "hint": "Flatter below 50, punchier above",
       "name": "Contrast"
     },
     {
-      "amount": 75.0,
+      "amount": 75,
       "hint": "Muted below 50, vivid above",
       "name": "Saturation"
     },
     {
-      "amount": 25.0,
+      "amount": 25,
       "hint": "Rotate all colours",
       "name": "Hue shift"
     },
     {
-      "amount": 60.0,
+      "amount": 60,
       "hint": "Darkened edges",
       "name": "Vignette"
     },
     {
-      "amount": 45.0,
+      "amount": 45,
       "hint": "Punch in on the picture",
       "name": "Zoom punch"
     },
     {
-      "amount": 40.0,
+      "amount": 40,
       "hint": "Camera shake",
       "name": "Shake"
     },
     {
-      "amount": 30.0,
+      "amount": 30,
       "hint": "Round the frame, for insets",
       "name": "Rounded corners"
     },
     {
-      "amount": 30.0,
+      "amount": 30,
       "hint": "White outline, for insets",
       "name": "Border"
     },
     {
-      "amount": 50.0,
+      "amount": 50,
       "hint": "Shadow behind the frame, for insets",
       "name": "Drop shadow"
     }
@@ -74,24 +74,24 @@
   "properties": [
     {
       "applies": "visual",
-      "default": 1.0,
+      "default": 1,
       "group": "Transform",
       "key": "zoom_x",
       "label": "Zoom X",
-      "max": 10.0,
-      "min": 0.0,
+      "max": 10,
+      "min": 0,
       "step": 0.01,
       "type": "number",
       "unit": "×"
     },
     {
       "applies": "visual",
-      "default": 1.0,
+      "default": 1,
       "group": "Transform",
       "key": "zoom_y",
       "label": "Zoom Y",
-      "max": 10.0,
-      "min": 0.0,
+      "max": 10,
+      "min": 0,
       "step": 0.01,
       "type": "number",
       "unit": "×"
@@ -106,84 +106,84 @@
     },
     {
       "applies": "visual",
-      "default": 0.0,
+      "default": 0,
       "group": "Transform",
       "key": "pos_x",
       "label": "Position X",
-      "max": 4000.0,
-      "min": -4000.0,
-      "step": 1.0,
+      "max": 4000,
+      "min": -4000,
+      "step": 1,
       "type": "number",
       "unit": "px"
     },
     {
       "applies": "visual",
-      "default": 0.0,
+      "default": 0,
       "group": "Transform",
       "key": "pos_y",
       "label": "Position Y",
-      "max": 4000.0,
-      "min": -4000.0,
-      "step": 1.0,
+      "max": 4000,
+      "min": -4000,
+      "step": 1,
       "type": "number",
       "unit": "px"
     },
     {
       "applies": "visual",
-      "default": 0.0,
+      "default": 0,
       "group": "Transform",
       "key": "rotation",
       "label": "Rotation angle",
-      "max": 360.0,
-      "min": -360.0,
+      "max": 360,
+      "min": -360,
       "step": 0.1,
       "type": "number",
       "unit": "°"
     },
     {
       "applies": "visual",
-      "default": 0.0,
+      "default": 0,
       "group": "Transform",
       "key": "anchor_x",
       "label": "Anchor point X",
-      "max": 4000.0,
-      "min": -4000.0,
-      "step": 1.0,
+      "max": 4000,
+      "min": -4000,
+      "step": 1,
       "type": "number",
       "unit": "px"
     },
     {
       "applies": "visual",
-      "default": 0.0,
+      "default": 0,
       "group": "Transform",
       "key": "anchor_y",
       "label": "Anchor point Y",
-      "max": 4000.0,
-      "min": -4000.0,
-      "step": 1.0,
+      "max": 4000,
+      "min": -4000,
+      "step": 1,
       "type": "number",
       "unit": "px"
     },
     {
       "applies": "visual",
-      "default": 0.0,
+      "default": 0,
       "group": "Transform",
       "key": "pitch",
       "label": "Pitch",
-      "max": 85.0,
-      "min": -85.0,
+      "max": 85,
+      "min": -85,
       "step": 0.1,
       "type": "number",
       "unit": "°"
     },
     {
       "applies": "visual",
-      "default": 0.0,
+      "default": 0,
       "group": "Transform",
       "key": "yaw",
       "label": "Yaw",
-      "max": 85.0,
-      "min": -85.0,
+      "max": 85,
+      "min": -85,
       "step": 0.1,
       "type": "number",
       "unit": "°"
@@ -206,49 +206,49 @@
     },
     {
       "applies": "visual",
-      "default": 0.0,
+      "default": 0,
       "group": "Cropping",
       "key": "crop_left",
       "label": "Crop left",
-      "max": 4000.0,
-      "min": 0.0,
-      "step": 1.0,
+      "max": 4000,
+      "min": 0,
+      "step": 1,
       "type": "number",
       "unit": "px"
     },
     {
       "applies": "visual",
-      "default": 0.0,
+      "default": 0,
       "group": "Cropping",
       "key": "crop_right",
       "label": "Crop right",
-      "max": 4000.0,
-      "min": 0.0,
-      "step": 1.0,
+      "max": 4000,
+      "min": 0,
+      "step": 1,
       "type": "number",
       "unit": "px"
     },
     {
       "applies": "visual",
-      "default": 0.0,
+      "default": 0,
       "group": "Cropping",
       "key": "crop_top",
       "label": "Crop top",
-      "max": 4000.0,
-      "min": 0.0,
-      "step": 1.0,
+      "max": 4000,
+      "min": 0,
+      "step": 1,
       "type": "number",
       "unit": "px"
     },
     {
       "applies": "visual",
-      "default": 0.0,
+      "default": 0,
       "group": "Cropping",
       "key": "crop_bottom",
       "label": "Crop bottom",
-      "max": 4000.0,
-      "min": 0.0,
-      "step": 1.0,
+      "max": 4000,
+      "min": 0,
+      "step": 1,
       "type": "number",
       "unit": "px"
     },
@@ -281,60 +281,60 @@
     },
     {
       "applies": "visual",
-      "default": 100.0,
+      "default": 100,
       "group": "Composite",
       "key": "opacity",
       "label": "Opacity",
-      "max": 100.0,
-      "min": 0.0,
+      "max": 100,
+      "min": 0,
       "step": 0.1,
       "type": "number",
       "unit": "%"
     },
     {
       "applies": "media",
-      "default": 100.0,
+      "default": 100,
       "group": "Speed change",
       "key": "speed",
       "label": "Speed",
-      "max": 1000.0,
-      "min": 10.0,
-      "step": 1.0,
+      "max": 1000,
+      "min": 10,
+      "step": 1,
       "type": "number",
       "unit": "%"
     },
     {
       "applies": "sound",
-      "default": 0.0,
+      "default": 0,
       "group": "Audio",
       "key": "volume",
       "label": "Volume",
-      "max": 0.0,
-      "min": -60.0,
+      "max": 0,
+      "min": -60,
       "step": 0.1,
       "type": "number",
       "unit": "dB"
     },
     {
       "applies": "sound",
-      "default": 0.0,
+      "default": 0,
       "group": "Audio",
       "key": "fade_in",
       "label": "Fade in",
-      "max": 10.0,
-      "min": 0.0,
+      "max": 10,
+      "min": 0,
       "step": 0.05,
       "type": "number",
       "unit": "s"
     },
     {
       "applies": "sound",
-      "default": 0.0,
+      "default": 0,
       "group": "Audio",
       "key": "fade_out",
       "label": "Fade out",
-      "max": 10.0,
-      "min": 0.0,
+      "max": 10,
+      "min": 0,
       "step": 0.05,
       "type": "number",
       "unit": "s"
@@ -360,13 +360,13 @@
     },
     {
       "applies": "text",
-      "default": 100.0,
+      "default": 100,
       "group": "Text",
       "key": "font_size",
       "label": "Size",
-      "max": 400.0,
-      "min": 10.0,
-      "step": 1.0,
+      "max": 400,
+      "min": 10,
+      "step": 1,
       "type": "number",
       "unit": "%"
     },
@@ -388,12 +388,12 @@
     },
     {
       "applies": "text",
-      "default": 0.0,
+      "default": 0,
       "group": "Text",
       "key": "tracking",
       "label": "Tracking",
-      "max": 50.0,
-      "min": -10.0,
+      "max": 50,
+      "min": -10,
       "step": 0.5,
       "type": "number",
       "unit": ""
@@ -408,12 +408,12 @@
     },
     {
       "applies": "text",
-      "default": 5.0,
+      "default": 5,
       "group": "Text",
       "key": "stroke_size",
       "label": "Stroke size",
-      "max": 30.0,
-      "min": 0.0,
+      "max": 30,
+      "min": 0,
       "step": 0.5,
       "type": "number",
       "unit": ""
@@ -425,6 +425,95 @@
       "key": "shadow",
       "label": "Drop shadow",
       "type": "bool"
+    },
+    {
+      "applies": "captions",
+      "default": false,
+      "group": "Text",
+      "key": "uppercase",
+      "label": "All capitals",
+      "type": "bool"
+    },
+    {
+      "applies": "captions",
+      "default": "Centre",
+      "group": "Text",
+      "key": "align",
+      "label": "Align",
+      "options": [
+        "Left",
+        "Centre",
+        "Right"
+      ],
+      "type": "choice"
+    },
+    {
+      "applies": "captions",
+      "default": 90,
+      "group": "Text",
+      "key": "line_width",
+      "label": "Line width",
+      "max": 100,
+      "min": 20,
+      "step": 1,
+      "type": "number",
+      "unit": "%"
+    },
+    {
+      "applies": "captions",
+      "default": "#000000",
+      "group": "Text",
+      "key": "bg_color",
+      "label": "Box colour",
+      "type": "color"
+    },
+    {
+      "applies": "captions",
+      "default": 0,
+      "group": "Text",
+      "key": "bg_opacity",
+      "label": "Box opacity",
+      "max": 100,
+      "min": 0,
+      "step": 1,
+      "type": "number",
+      "unit": "%"
+    },
+    {
+      "applies": "caption_track",
+      "default": 0,
+      "group": "Chunks",
+      "key": "chunk_words",
+      "label": "Max words",
+      "max": 40,
+      "min": 0,
+      "step": 1,
+      "type": "number",
+      "unit": "words"
+    },
+    {
+      "applies": "caption_track",
+      "default": 0,
+      "group": "Chunks",
+      "key": "chunk_chars",
+      "label": "Max characters",
+      "max": 200,
+      "min": 0,
+      "step": 1,
+      "type": "number",
+      "unit": "chars"
+    },
+    {
+      "applies": "caption_track",
+      "default": 0,
+      "group": "Chunks",
+      "key": "chunk_seconds",
+      "label": "Max seconds",
+      "max": 60,
+      "min": 0,
+      "step": 0.5,
+      "type": "number",
+      "unit": "s"
     }
   ],
   "transitions": [
@@ -508,5 +597,29 @@
       "hint": "Short digital glitch",
       "name": "Glitch"
     }
+  ],
+  "caption_track_keys": [
+    "chunk_words",
+    "chunk_chars",
+    "chunk_seconds",
+    "font",
+    "font_size",
+    "bold",
+    "color",
+    "tracking",
+    "stroke_color",
+    "stroke_size",
+    "shadow",
+    "uppercase",
+    "align",
+    "line_width",
+    "bg_color",
+    "bg_opacity",
+    "pos_x",
+    "pos_y",
+    "zoom_x",
+    "zoom_y",
+    "zoom_link",
+    "opacity"
   ]
 }

@@ -31,6 +31,10 @@ pub enum Applies {
     Sound,
     /// Graphics and captions.
     Text,
+    /// Caption clips. A captions track gives its captions these, and a caption's own value overrides the track's.
+    Captions,
+    /// A captions track's own settings, such as how its captions are split. Clips never show these.
+    CaptionTrack,
 }
 
 #[derive(Clone, Serialize)]
@@ -57,6 +61,8 @@ pub struct Library {
     pub properties: Vec<PropDef>,
     pub effects: Vec<EffectDef>,
     pub transitions: Vec<TransitionDef>,
+    /// The settings a captions track takes. The app offers these in the track's Inspector.
+    pub caption_track_keys: &'static [&'static str],
 }
 
 pub const BLEND_MODES: &[&str] = &[
@@ -65,6 +71,34 @@ pub const BLEND_MODES: &[&str] = &[
 ];
 pub const FONTS: &[&str] =
     &["Segoe UI", "Arial", "Impact", "Georgia", "Times New Roman", "Verdana", "Trebuchet MS", "Consolas", "Comic Sans MS"];
+pub const ALIGNMENTS: &[&str] = &["Left", "Centre", "Right"];
+
+/// The settings a captions track carries. Every caption on the track starts from them; a caption's own value overrides
+/// them. A chunk limit of 0 is off, so with all three off each caption keeps the lines the subtitle model gave it.
+pub const CAPTION_TRACK_KEYS: &[&str] = &[
+    "chunk_words",
+    "chunk_chars",
+    "chunk_seconds",
+    "font",
+    "font_size",
+    "bold",
+    "color",
+    "tracking",
+    "stroke_color",
+    "stroke_size",
+    "shadow",
+    "uppercase",
+    "align",
+    "line_width",
+    "bg_color",
+    "bg_opacity",
+    "pos_x",
+    "pos_y",
+    "zoom_x",
+    "zoom_y",
+    "zoom_link",
+    "opacity",
+];
 
 fn num(key: &'static str, label: &'static str, group: &'static str, applies: Applies, range: (f64, f64, f64), default: f64, unit: &'static str) -> PropDef {
     let (min, max, step) = range;
@@ -111,6 +145,14 @@ pub fn library() -> Library {
         PropDef { key: "stroke_color", label: "Stroke colour", group: "Text", applies: Text, kind: PropKind::Color { default: "#000000" } },
         num("stroke_size", "Stroke size", "Text", Text, (0.0, 30.0, 0.5), 5.0, ""),
         flag("shadow", "Drop shadow", "Text", Text, true),
+        flag("uppercase", "All capitals", "Text", Captions, false),
+        PropDef { key: "align", label: "Align", group: "Text", applies: Captions, kind: PropKind::Choice { options: ALIGNMENTS, default: "Centre" } },
+        num("line_width", "Line width", "Text", Captions, (20.0, 100.0, 1.0), 90.0, "%"),
+        PropDef { key: "bg_color", label: "Box colour", group: "Text", applies: Captions, kind: PropKind::Color { default: "#000000" } },
+        num("bg_opacity", "Box opacity", "Text", Captions, (0.0, 100.0, 1.0), 0.0, "%"),
+        num("chunk_words", "Max words", "Chunks", CaptionTrack, (0.0, 40.0, 1.0), 0.0, "words"),
+        num("chunk_chars", "Max characters", "Chunks", CaptionTrack, (0.0, 200.0, 1.0), 0.0, "chars"),
+        num("chunk_seconds", "Max seconds", "Chunks", CaptionTrack, (0.0, 60.0, 0.5), 0.0, "s"),
     ];
 
     let fx = |name, hint, amount| EffectDef { name, hint, amount };
@@ -154,7 +196,7 @@ pub fn library() -> Library {
         tr("Spin", "Rotates in"),
         tr("Glitch", "Short digital glitch"),
     ];
-    Library { properties, effects, transitions }
+    Library { properties, effects, transitions, caption_track_keys: CAPTION_TRACK_KEYS }
 }
 
 pub fn is_effect(name: &str) -> bool {
@@ -171,6 +213,15 @@ pub fn effect_names() -> String {
 
 pub fn transition_names() -> String {
     library().transitions.iter().map(|t| t.name).collect::<Vec<_>>().join(", ")
+}
+
+/// Checks a setting of a captions track: the key must be one of `CAPTION_TRACK_KEYS`, and the value must pass the rules
+/// its library definition gives. Null is allowed, as it is for any property.
+pub fn validate_caption_track_property(key: &str, value: &Value) -> Result<(), String> {
+    if !CAPTION_TRACK_KEYS.contains(&key) {
+        return Err(format!("{key} is not a captions track setting; available: {}", CAPTION_TRACK_KEYS.join(", ")));
+    }
+    validate_property(key, value)
 }
 
 /// Checks a property value against its definition. Null is always allowed: it resets the property.

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { runCommand } from "../commands";
 import { openTransformMenu } from "./ClipMenu";
-import { clipGain, clipLook, outgoingLook, presence, reader, textLook, transitionLook } from "../look";
+import { clipGain, clipLook, inherit, outgoingLook, presence, reader, textLook, transitionLook, withLive } from "../look";
 import { assetUrl } from "../media";
 import { commitProps, core, previewProps, setPlaying, toast, ui } from "../store";
 import type { Live } from "../look";
@@ -96,8 +96,8 @@ export function shownAt(p: Project, frame: number): Shown[] {
     if (!c) continue;
     const pr = presence(c, frame);
     const previous = pr.edge === "in" ? clips.find((x) => x.track === t.id && clipEnd(x) === c.start) : undefined;
-    if (previous && pr.name) shown.push({ c: previous, frame: clipEnd(previous) - 1, leaving: { name: pr.name, t: pr.t } });
-    shown.push({ c, frame });
+    if (previous && pr.name) shown.push({ c: inherit(previous, tracks), frame: clipEnd(previous) - 1, leaving: { name: pr.name, t: pr.t } });
+    shown.push({ c: inherit(c, tracks), frame });
   }
   return shown;
 }
@@ -157,10 +157,12 @@ interface Box {
 }
 
 function Stage() {
-  const p = core.use((s) => s.state)!.project;
+  const stored = core.use((s) => s.state)!.project;
   const lib = core.use((s) => s.library)!;
   const frame = ui.use((s) => s.frame);
   const live = ui.use((s) => s.live);
+  // Captions track settings being dragged show here before they are committed.
+  const p = withLive(stored, live);
   const selection = ui.use((s) => s.selection);
   const safeArea = ui.use((s) => s.safeArea);
   const stage = useRef<HTMLDivElement>(null);
@@ -205,7 +207,8 @@ function Stage() {
     const target = e.target as HTMLElement;
     const handle = target.dataset.handle;
     const id = handle ? picked?.id : target.closest<HTMLElement>("[data-hit]")?.dataset.hit;
-    const c = clips.find((x) => x.id === id);
+    const found = clips.find((x) => x.id === id);
+    const c = found && inherit(found, tracks);
     if (!c) return ui.set({ selection: [] });
     if (tracks.find((t) => t.id === c.track)?.locked) return toast(`Track ${c.track} is locked`);
     e.preventDefault();

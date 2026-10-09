@@ -178,7 +178,10 @@ function SubtitlesClip({ clip, media, fps }: { clip: Clip; media: MediaItem; fps
       </div>
       {busy && <p className="hint">{progressText(progress)}</p>}
       {error && <p className="hint err">{error}</p>}
-      <p className="hint note">Subtitles go on the first unlocked Captions track as one undo step. Nothing is sent until you press Generate.</p>
+      <p className="hint note">
+        Subtitles go on the first unlocked Captions track as one undo step, split by that track's settings. Click its header to change them. Nothing is
+        sent until you press Generate.
+      </p>
     </div>
   );
 }

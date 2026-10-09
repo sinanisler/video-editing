@@ -1,5 +1,5 @@
 use crate::export::rescale_frames;
-use crate::library::{effect_names, is_effect, is_transition, transition_names, validate_property};
+use crate::library::{effect_names, is_effect, is_transition, transition_names, validate_caption_track_property, validate_property};
 use crate::model::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -152,6 +152,10 @@ pub enum Command {
         #[serde(default)]
         hidden: Option<bool>,
     },
+    /// Sets one subtitle setting of a captions track, such as `chunk_words` or `color`. The keys are the
+    /// `caption_track_keys` of `library_list`. Null takes the setting away, which brings the default back.
+    #[serde(rename = "timeline.set_track_property")]
+    SetTrackProperty { track: String, key: String, value: Value },
 
     /// `name` and `text` set those fields; any other key goes into the clip's property bag. A null value removes the key.
     #[serde(rename = "clip.set_property")]
@@ -745,7 +749,7 @@ pub fn apply(p: &mut Project, cmd: &Command, actor: &str) -> R<Value> {
                 TrackKind::Audio => tracks.len(),
             };
             let name = name.clone().filter(|s| !s.trim().is_empty()).unwrap_or_else(|| format!("{label} {n}"));
-            tracks.insert(at, Track { id: id.clone(), name, kind: *kind, locked: false, muted: false, hidden: false });
+            tracks.insert(at, Track { id: id.clone(), name, kind: *kind, locked: false, muted: false, hidden: false, props: BTreeMap::new() });
             Ok(json!({ "track": id }))
         }
         Command::RemoveTrack { track } => {
@@ -776,6 +780,19 @@ pub fn apply(p: &mut Project, cmd: &Command, actor: &str) -> R<Value> {
             t.muted = muted.unwrap_or(t.muted);
             t.hidden = hidden.unwrap_or(t.hidden);
             Ok(json!({ "track": track, "locked": t.locked, "muted": t.muted, "hidden": t.hidden }))
+        }
+        Command::SetTrackProperty { track, key, value } => {
+            let t = p.sequence.tracks.iter_mut().find(|t| &t.id == track).ok_or_else(|| format!("no track {track}"))?;
+            if t.kind != TrackKind::Caption {
+                return Err(format!("track {track} is not a captions track; only captions tracks have subtitle settings"));
+            }
+            validate_caption_track_property(key, value)?;
+            if value.is_null() {
+                t.props.remove(key);
+            } else {
+                t.props.insert(key.clone(), value.clone());
+            }
+            Ok(json!({ "track": track, "key": key }))
         }
 
         Command::SetProperty { clip, key, value } => {

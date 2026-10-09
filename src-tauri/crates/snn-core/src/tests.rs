@@ -75,6 +75,51 @@ fn ripple_delete_range_closes_the_gap_on_every_track() {
 }
 
 #[test]
+fn captions_tracks_take_subtitle_settings_and_nothing_else_does() {
+    let mut e = demo();
+    let set = |e: &mut Editor, track: &str, key: &str, value: serde_json::Value| {
+        e.execute("user", cmd(json!({"tool": "timeline.set_track_property", "args": {"track": track, "key": key, "value": value}})))
+    };
+    let props = |e: &Editor, track: &str| e.project().sequence.tracks.iter().find(|t| t.id == track).unwrap().props.clone();
+    set(&mut e, "T1", "chunk_words", json!(3)).unwrap();
+    set(&mut e, "T1", "align", json!("Left")).unwrap();
+    assert_eq!(props(&e, "T1")["chunk_words"], json!(3));
+    assert_eq!(props(&e, "T1")["align"], json!("Left"));
+
+    // Saved projects keep the settings, and a track with none has no props key at all.
+    let saved = serde_json::to_value(e.project()).unwrap();
+    let tracks = saved["sequence"]["tracks"].as_array().unwrap();
+    assert_eq!(tracks.iter().find(|t| t["id"] == "T1").unwrap()["props"]["align"], json!("Left"));
+    assert!(tracks.iter().find(|t| t["id"] == "V1").unwrap().get("props").is_none());
+
+    // Null takes a setting away, so the default comes back.
+    set(&mut e, "T1", "chunk_words", json!(null)).unwrap();
+    assert!(!props(&e, "T1").contains_key("chunk_words"));
+
+    // A video track, a key that is not a caption setting, and an out of range value are all refused, and change nothing.
+    let refused = set(&mut e, "V1", "align", json!("Left")).unwrap_err();
+    assert!(refused.contains("not a captions track"), "{refused}");
+    let refused = set(&mut e, "T1", "crop_left", json!(10)).unwrap_err();
+    assert!(refused.contains("not a captions track setting"), "{refused}");
+    let refused = set(&mut e, "T1", "chunk_words", json!(-1)).unwrap_err();
+    assert!(refused.contains("between"), "{refused}");
+    assert_eq!(props(&e, "T1")["align"], json!("Left"));
+    assert!(props(&e, "V1").is_empty());
+}
+
+#[test]
+fn every_captions_track_setting_is_a_library_property_and_the_chunk_limits_stay_off_clips() {
+    let lib = library();
+    assert_eq!(lib.caption_track_keys, crate::library::CAPTION_TRACK_KEYS);
+    for key in lib.caption_track_keys {
+        assert!(lib.properties.iter().any(|p| p.key == *key), "{key} is not a library property");
+    }
+    let chunks: Vec<_> = lib.properties.iter().filter(|p| p.group == "Chunks").collect();
+    assert_eq!(chunks.len(), 3);
+    assert!(chunks.iter().all(|p| p.applies == crate::library::Applies::CaptionTrack));
+}
+
+#[test]
 fn locked_tracks_are_left_alone() {
     let mut e = demo();
     e.execute("user", cmd(json!({"tool": "timeline.set_track_state", "args": {"track": "A2", "locked": true}})))

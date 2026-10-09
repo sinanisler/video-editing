@@ -1,6 +1,7 @@
 import { execBatch, project, toast } from "./store";
-import { parseSubtitles, toSrt, toVtt } from "./subtitles";
+import { chunkCues, chunkRuleOf, parseSubtitles, toSrt, toVtt } from "./subtitles";
 import type { Cue } from "./subtitles";
+import type { Clip } from "./types";
 import { clipEnd, fpsOf } from "./util";
 
 /** Opens the webview's own file picker, so no file-system plugin is needed. Resolves to null if cancelled. */
@@ -16,8 +17,33 @@ export function pickSubtitleFile(): Promise<File | null> {
 }
 
 /**
- * Adds each cue as a caption clip on the first unlocked captions track, as one undo step. Cue times are seconds on the timeline.
- * A cue that would overlap a caption already there is skipped. A cue that overlaps the one before it starts when that one ends.
+ * The commands that put each cue on a captions track as a caption. Cue times are seconds on the timeline.
+ * A cue that would overlap one of `taken` is skipped. A cue that overlaps the one before it starts when that one ends.
+ */
+function placeCues(track: string, cues: Cue[], fps: number, taken: Clip[]) {
+  const commands: { tool: string; args: Record<string, unknown> }[] = [];
+  let skipped = 0;
+  let previousEnd = 0;
+  for (const cue of cues) {
+    const start = Math.max(Math.round(cue.start * fps), previousEnd);
+    const end = Math.round(cue.end * fps);
+    const duration = end - start;
+    if (duration < 1 || taken.some((c) => start < clipEnd(c) && c.start < end)) {
+      skipped++;
+      continue;
+    }
+    commands.push({
+      tool: "timeline.add_clip",
+      args: { track, start, duration, name: cue.text.split("\n")[0].slice(0, 40), kind: "caption", text: cue.text },
+    });
+    previousEnd = end;
+  }
+  return { commands, skipped };
+}
+
+/**
+ * Adds each cue as a caption clip on the first unlocked captions track, as one undo step. The track's chunk settings split
+ * long cues first. A cue that would overlap a caption already there is skipped.
  * Resolves to how many were added and skipped, or null when nothing was added.
  */
 export async function addCaptions(cues: Cue[]): Promise<{ added: number; skipped: number } | null> {
@@ -28,31 +54,43 @@ export async function addCaptions(cues: Cue[]): Promise<{ added: number; skipped
     toast("No unlocked captions track to put the captions on");
     return null;
   }
-  const fps = fpsOf(p);
-  const existing = p.sequence.clips.filter((c) => c.track === track.id);
-  const commands: { tool: string; args: Record<string, unknown> }[] = [];
-  let skipped = 0;
-  let previousEnd = 0;
-  for (const cue of cues) {
-    const start = Math.max(Math.round(cue.start * fps), previousEnd);
-    const end = Math.round(cue.end * fps);
-    const duration = end - start;
-    if (duration < 1 || existing.some((c) => start < clipEnd(c) && c.start < end)) {
-      skipped++;
-      continue;
-    }
-    commands.push({
-      tool: "timeline.add_clip",
-      args: { track: track.id, start, duration, name: cue.text.split("\n")[0].slice(0, 40), kind: "caption", text: cue.text },
-    });
-    previousEnd = end;
-  }
+  const pieces = chunkCues(cues, chunkRuleOf(track.props));
+  const { commands, skipped } = placeCues(track.id, pieces, fpsOf(p), p.sequence.clips.filter((c) => c.track === track.id));
   if (!commands.length) {
-    toast(`None of the ${cues.length} captions fit on the captions track`);
+    toast(`None of the ${pieces.length} captions fit on the captions track`);
     return null;
   }
   const done = await execBatch(commands);
   return done ? { added: commands.length, skipped } : null;
+}
+
+/**
+ * Splits the captions on a captions track that are longer than its chunk settings allow, as one undo step. A caption that
+ * already fits keeps its own settings. One that is split takes the track's, so its own settings are lost.
+ */
+export async function splitCaptions(track: string) {
+  const p = project();
+  if (!p) return;
+  const rule = chunkRuleOf(p.sequence.tracks.find((t) => t.id === track)?.props);
+  if (!rule.words && !rule.chars && !rule.seconds) return toast("Set a maximum number of words, characters or seconds first");
+  const own = p.sequence.clips.filter((c) => c.track === track && c.kind === "caption").sort((a, b) => a.start - b.start);
+  if (!own.length) return toast("No captions on this track to split");
+  const fps = fpsOf(p);
+  const split: Clip[] = [];
+  const pieces: Cue[] = [];
+  for (const c of own) {
+    const parts = chunkCues([{ start: c.start / fps, end: clipEnd(c) / fps, text: c.text ?? c.name }], rule);
+    if (parts.length > 1) {
+      split.push(c);
+      pieces.push(...parts);
+    }
+  }
+  if (!split.length) return toast("Every caption on this track already fits its settings");
+  const commands = [
+    ...split.map((c) => ({ tool: "timeline.delete_clip", args: { clip: c.id } })),
+    ...placeCues(track, pieces, fps, []).commands,
+  ];
+  if (await execBatch(commands)) toast(`Split ${split.length} captions into ${pieces.length}`);
 }
 
 /** Adds the captions in a subtitle file. */

@@ -42,6 +42,10 @@ pub struct Track {
     pub muted: bool,
     #[serde(default)]
     pub hidden: bool,
+    /// Subtitle settings of a captions track: how its captions are split, and the look every caption on it starts
+    /// from. Only the keys in `library::CAPTION_TRACK_KEYS` are used. Left out of the saved file when empty.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub props: BTreeMap<String, Value>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -184,7 +188,7 @@ pub struct Project {
 }
 
 fn track(id: &str, name: &str, kind: TrackKind) -> Track {
-    Track { id: id.into(), name: name.into(), kind, locked: false, muted: false, hidden: false }
+    Track { id: id.into(), name: name.into(), kind, locked: false, muted: false, hidden: false, props: BTreeMap::new() }
 }
 
 impl Project {

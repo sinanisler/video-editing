@@ -90,3 +90,66 @@ export function toSrt(cues: Cue[]): string {
 export function toVtt(cues: Cue[]): string {
   return `WEBVTT\n\n${cues.map((c) => `${stamp(c.start, ".")} --> ${stamp(c.end, ".")}\n${c.text}\n`).join("\n")}`;
 }
+
+/**
+ * How long a subtitle may be, from a captions track's settings. Each limit is off at 0: with all three off, a subtitle
+ * stays as the subtitle model gave it.
+ */
+export interface ChunkRule {
+  /** Most words in one subtitle. */
+  words: number;
+  /** Most characters in one subtitle, counting the spaces between its words. */
+  chars: number;
+  /** Longest a subtitle may run, in seconds. */
+  seconds: number;
+}
+
+/** The chunk limits a captions track's settings give. A limit that is missing, zero or negative is off. */
+export function chunkRuleOf(props: Record<string, unknown> | undefined): ChunkRule {
+  const limit = (key: string) => {
+    const value = props?.[key];
+    return typeof value === "number" && value > 0 ? value : 0;
+  };
+  return { words: Math.floor(limit("chunk_words")), chars: Math.floor(limit("chunk_chars")), seconds: limit("chunk_seconds") };
+}
+
+/**
+ * Splits each cue into shorter ones that keep within the rule. The model times whole lines rather than words, so the
+ * words of a cue share its time in proportion to their length. A word longer than a limit stays whole.
+ */
+export function chunkCues(cues: Cue[], rule: ChunkRule): Cue[] {
+  if (!rule.words && !rule.chars && !rule.seconds) return cues;
+  const out: Cue[] = [];
+  for (const cue of cues) {
+    const words = cue.text.split(/\s+/).filter(Boolean);
+    const total = words.reduce((n, w) => n + w.length, 0);
+    const span = cue.end - cue.start;
+    let letters = 0;
+    const timed = words.map((word) => {
+      const start = cue.start + (span * letters) / total;
+      letters += word.length;
+      return { word, start, end: cue.start + (span * letters) / total };
+    });
+    let group: typeof timed = [];
+    let chars = 0;
+    const flush = () => {
+      if (!group.length) return;
+      out.push({ start: group[0].start, end: group[group.length - 1].end, text: group.map((t) => t.word).join(" ") });
+      group = [];
+      chars = 0;
+    };
+    for (const t of timed) {
+      const grown = group.length ? chars + 1 + t.word.length : t.word.length;
+      const full =
+        group.length > 0 &&
+        ((rule.words > 0 && group.length >= rule.words) ||
+          (rule.chars > 0 && grown > rule.chars) ||
+          (rule.seconds > 0 && t.end - group[0].start > rule.seconds));
+      if (full) flush();
+      chars = group.length ? chars + 1 + t.word.length : t.word.length;
+      group.push(t);
+    }
+    flush();
+  }
+  return out;
+}

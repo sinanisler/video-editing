@@ -144,6 +144,7 @@ export function trackMenu(t: Track, seq: Sequence): MenuItem[] {
     "sep",
     ...(t.kind === "caption"
       ? ([
+          { label: "Subtitle settings", action: () => ui.set({ selectedTrack: t.id, selection: [], rightTab: "inspector" }) },
           { label: "Import subtitles…", action: () => pickSubtitleFile().then((file) => file && importSubtitles(file)) },
           { label: "Export as SRT", action: () => exportSubtitles("srt") },
           { label: "Export as WebVTT", action: () => exportSubtitles("vtt") },
@@ -167,18 +168,28 @@ export function openTrackMenu(e: React.MouseEvent, t: Track, seq: Sequence) {
 export function TrackHead({ t, seq, height }: { t: Track; seq: Sequence; height: number }) {
   const collapsed = ui.use((s) => !!s.collapsed[t.id]);
   const target = ui.use((s) => s.targetTrack === t.id);
+  const selected = ui.use((s) => s.selectedTrack === t.id);
   const colour = ui.use((s) => s.trackColors[t.id]);
   const flag = t.kind === "audio" ? "muted" : "hidden";
   const hasClips = seq.clips.some((c) => c.track === t.id);
   const mini = collapsed;
+  const caption = t.kind === "caption";
   return (
     <div
-      className={`hd ${target ? "target" : ""} ${mini ? "mini" : ""}`}
+      className={`hd ${target ? "target" : ""} ${selected ? "sel" : ""} ${mini ? "mini" : ""}`}
       style={{ height, boxShadow: colour ? `inset 3px 0 0 ${colour}` : undefined }}
-      data-tip={`${t.name}: click to ${collapsed ? "expand" : "collapse"}. Double-click the name to rename. Right-click for options.`}
+      data-tip={
+        caption
+          ? `${t.name}: click to open its subtitle settings. The arrow folds it. Double-click the name to rename. Right-click for options.`
+          : `${t.name}: click to ${collapsed ? "expand" : "collapse"}. Double-click the name to rename. Right-click for options.`
+      }
       onClick={(e) => {
-        // Buttons, the name and the height grip keep their own clicks.
-        if ((e.target as HTMLElement).closest("button, input, .grip, .n")) return;
+        const el = e.target as HTMLElement;
+        // Buttons, the name box and the height grip keep their own clicks.
+        if (el.closest("button, input, .grip")) return;
+        // On a captions track the rest of the header opens its settings, and only the arrow folds it.
+        if (caption && !el.closest(".fold")) return ui.set({ selectedTrack: t.id, selection: [], rightTab: "inspector" });
+        if (el.closest(".n")) return;
         ui.set({ collapsed: { ...ui.get().collapsed, [t.id]: !collapsed } });
       }}
       onContextMenu={(e) => openTrackMenu(e, t, seq)}

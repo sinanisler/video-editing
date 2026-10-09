@@ -59,6 +59,8 @@ export const ui = createStore({
   linkedSel: true,
   /** Ids of the selected clips. */
   selection: [] as string[],
+  /** A captions track whose settings the Inspector shows. Clicking its header selects it; selecting clips clears it. */
+  selectedTrack: null as string | null,
   leftTab: "media",
   rightTab: "inspector",
   /** Which part of the AI tab is open. Clicking the tab opens Chat; the MCP pill opens Connect MCP. */
@@ -119,6 +121,15 @@ export const ui = createStore({
   /** The box being dragged across the media pool, in screen pixels. */
   mediaMarquee: null as { x: number; y: number; w: number; h: number } | null,
   toast: "",
+});
+
+// Selecting clips takes the Inspector away from a track: it shows the clips, or the track, never both.
+let clipSelection = ui.get().selection;
+ui.subscribe(() => {
+  const { selection, selectedTrack } = ui.get();
+  if (selection === clipSelection) return;
+  clipSelection = selection;
+  if (selection.length && selectedTrack) ui.set({ selectedTrack: null });
 });
 
 let toastTimer = 0;
@@ -182,6 +193,12 @@ export const previewProps = (clip: string, values: Record<string, unknown>) => u
 /** Writes values to the clip as one undo step, then drops the live preview. Null resets a key. */
 export function commitProps(clip: string, values: Record<string, unknown>) {
   const commands = Object.entries(values).map(([key, value]) => ({ tool: "clip.set_property", args: { clip, key, value } }));
+  return execBatch(commands).finally(() => ui.set({ live: null }));
+}
+
+/** Writes captions track settings as one undo step, then drops the live preview. Null takes a setting away. */
+export function commitTrackProps(track: string, values: Record<string, unknown>) {
+  const commands = Object.entries(values).map(([key, value]) => ({ tool: "timeline.set_track_property", args: { track, key, value } }));
   return execBatch(commands).finally(() => ui.set({ live: null }));
 }
 

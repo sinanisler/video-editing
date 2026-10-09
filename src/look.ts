@@ -2,7 +2,7 @@
 // Everything the library defines must be handled here; `unimplemented` reports what is not.
 
 import type { CSSProperties } from "react";
-import type { Clip, Library, PropDef, Project } from "./types";
+import type { Clip, Library, PropDef, Project, Track } from "./types";
 
 /** Values being dragged in the inspector, shown before they are committed. */
 export interface Live {
@@ -120,17 +120,50 @@ export function clipLook(c: Clip, frame: number, p: Project, r: Reader): ClipLoo
   };
 }
 
-/** CSS variables and font settings for graphics and captions. */
+const ALIGN: Record<string, string> = { Left: "left", Centre: "center", Right: "right" };
+
+/** A `#rrggbb` colour at an opacity from 0 to 1, as CSS. Anything else is transparent. */
+function fade(hex: string, opacity: number): string {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return "transparent";
+  const n = parseInt(m[1], 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${opacity})`;
+}
+
+/** CSS variables and font settings for graphics and captions. A caption's box is off at 0 opacity. */
 export function textLook(r: Reader): CSSProperties {
+  const box = r.n("bg_opacity") / 100;
   return {
     fontFamily: `"${r.s("font")}", sans-serif`,
     fontWeight: r.b("bold") ? 900 : 400,
     letterSpacing: `${r.n("tracking") / 100}em`,
+    textTransform: r.b("uppercase") ? "uppercase" : undefined,
     "--fs": r.n("font_size") / 100,
     "--txt": r.s("color"),
     "--stroke": `${r.n("stroke_size") * 0.12}cqh ${r.s("stroke_color")}`,
     "--shadow": r.b("shadow") ? "0 0.8cqh 0 #000a" : "none",
+    "--align": ALIGN[r.s("align")] ?? "center",
+    "--lw": `${r.n("line_width")}%`,
+    "--bg": box > 0 ? fade(r.s("bg_color"), box) : "transparent",
+    "--bgpad": box > 0 ? "0.12em 0.3em" : "0",
   } as CSSProperties;
+}
+
+/**
+ * A caption takes the settings of its captions track, with its own properties on top. Other clips come back as they are,
+ * and so does a caption on a track with no settings.
+ */
+export function inherit(c: Clip, tracks: Track[]): Clip {
+  if (c.kind !== "caption") return c;
+  const settings = tracks.find((t) => t.id === c.track)?.props;
+  return settings ? { ...c, props: { ...settings, ...c.props } } : c;
+}
+
+/** The project with a captions track's settings that are being dragged put in place, so the preview shows them before they are committed. */
+export function withLive(p: Project, live: Live | null): Project {
+  if (!live || !p.sequence.tracks.some((t) => t.id === live.clip)) return p;
+  const tracks = p.sequence.tracks.map((t) => (t.id === live.clip ? { ...t, props: { ...t.props, ...live.values } } : t));
+  return { ...p, sequence: { ...p.sequence, tracks } };
 }
 
 export interface TransitionLook {

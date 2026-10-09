@@ -18,6 +18,8 @@ export interface Track {
   locked: boolean;
   muted: boolean;
   hidden: boolean;
+  /** Subtitle settings of a captions track. Missing when none are set. */
+  props?: Record<string, unknown>;
 }
 
 export interface Transition {
@@ -97,7 +99,7 @@ export interface LogEntry {
 }
 
 /** Mirrors snn-core's library.rs. */
-export type PropDef = { key: string; label: string; group: string; applies: "visual" | "media" | "sound" | "text" } & (
+export type PropDef = { key: string; label: string; group: string; applies: "visual" | "media" | "sound" | "text" | "captions" | "caption_track" } & (
   | { type: "number"; min: number; max: number; step: number; default: number; unit: string }
   | { type: "bool"; default: boolean }
   | { type: "choice"; options: string[]; default: string }
@@ -108,6 +110,8 @@ export interface Library {
   properties: PropDef[];
   effects: { name: string; hint: string; amount: number }[];
   transitions: { name: string; hint: string }[];
+  /** The settings a captions track takes. */
+  caption_track_keys: string[];
 }
 
 export interface McpStatus {

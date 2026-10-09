@@ -339,7 +339,7 @@ function combo(e: KeyboardEvent): string {
 export function handleKey(e: KeyboardEvent) {
   if (e.key === "Escape") {
     if (ui.get().overlay) ui.set({ overlay: null });
-    else ui.set({ selection: [] });
+    else ui.set({ selection: [], selectedTrack: null });
     (document.activeElement as HTMLElement | null)?.blur?.();
     return;
   }

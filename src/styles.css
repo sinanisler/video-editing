@@ -97,8 +97,9 @@ h4:first-child { margin-top: 0; }
 .g-count { position: absolute; left: 3%; top: 5%; background: #000a; border: .4cqh solid var(--txt, #fff); color: var(--txt, #fff); font-size: calc(6cqh * var(--fs, 1)); padding: .5cqh 2.5cqh; border-radius: 1cqh; }
 .g-chap { position: absolute; left: 0; right: 0; top: 38%; background: #000c; text-align: center; font-size: calc(8cqh * var(--fs, 1)); padding: 3cqh; color: var(--txt, #fff); }
 .g-lower { position: absolute; left: 5%; bottom: 22%; background: var(--accent); color: #111; font-size: calc(4.5cqh * var(--fs, 1)); padding: 1cqh 3cqh; }
-.g-caption span { display: inline-block; }
-.g-caption { position: absolute; left: 0; right: 0; bottom: 8%; text-align: center; font-size: calc(8cqh * var(--fs, 1)); color: var(--txt, #fff); -webkit-text-stroke: var(--stroke, 0); paint-order: stroke fill; text-shadow: var(--shadow, none); }
+.g-caption span { display: inline-block; background: var(--bg, transparent); padding: var(--bgpad, 0); }
+/* The line width is a share of the frame, centred: the padding on each side makes the text column that wide. */
+.g-caption { position: absolute; left: 0; right: 0; bottom: 8%; padding: 0 calc((100% - var(--lw, 90%)) / 2); text-align: var(--align, center); font-size: calc(8cqh * var(--fs, 1)); color: var(--txt, #fff); -webkit-text-stroke: var(--stroke, 0); paint-order: stroke fill; text-shadow: var(--shadow, none); }
 #safe { position: absolute; inset: 5%; border: 1px dashed #fff5; pointer-events: none; }
 #transport { display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: var(--panel); border-top: 1px solid var(--line); flex: none; }
 #tc { font: 600 18px Consolas, monospace; color: var(--accent); min-width: 130px; }
@@ -339,6 +340,7 @@ button.wide { width: 100%; padding: 7px; margin-bottom: 10px; }
 /* Track headers: target, collapsed strip, fold button, height grip. */
 .hd { position: relative; }
 .hd.target { background: #f5b83d1c; }
+.hd.sel { outline: 1px solid #f5b83d; outline-offset: -1px; }
 .hd .fold { width: 16px !important; padding: 0 !important; color: var(--mute) !important; border: 0 !important; background: none !important; }
 .hd .grip { position: absolute; left: 0; right: 0; bottom: 0; height: 5px; cursor: ns-resize; }
 .hd .grip:hover { background: #f5b83d66; }

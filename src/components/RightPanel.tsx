@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { aiCancel, aiChat, aiClearKey, aiModels, aiSetKey, aiSetModel, aiState, DEFAULT_MODELS, guidesInfo, onChatProgress, setupGaps } from "../ai";
 import type { AiModel, AiState, ChatMessage, ChatProgress } from "../ai";
-import { reader } from "../look";
-import { commitProps as commit, core, exec, previewProps as preview, toast, ui } from "../store";
+import { inherit, reader } from "../look";
+import type { Reader } from "../look";
+import { splitCaptions } from "../captions";
+import { commitProps as commit, commitTrackProps, core, exec, previewProps as preview, toast, ui } from "../store";
 import type { AiSub } from "../store";
 import type { Clip, LogEntry, MediaItem, PropDef, Track, Transition } from "../types";
 import { clamp, fpsOf, timecode } from "../util";
@@ -154,6 +156,11 @@ function applies(def: PropDef, c: Clip, track: Track | undefined, m: MediaItem |
       return c.kind === "audio" || m?.kind === "video";
     case "text":
       return c.kind === "graphic" || c.kind === "caption";
+    case "captions":
+      return c.kind === "caption";
+    // A captions track's own settings are shown on the track, never on a clip.
+    case "caption_track":
+      return false;
   }
 }
 
@@ -195,6 +202,7 @@ function Inspector() {
   const state = core.use((s) => s.state)!;
   const lib = core.use((s) => s.library)!;
   const selection = ui.use((s) => s.selection);
+  const selectedTrack = ui.use((s) => s.selectedTrack);
   const live = ui.use((s) => s.live);
   const p = state.project;
   const chosen = p.sequence.clips.filter((x) => selection.includes(x.id));
@@ -206,8 +214,16 @@ function Inspector() {
       </div>
     );
   }
-  const c: Clip | undefined = chosen[0];
-  if (!c) return <div className="empty">Select a clip on the timeline to edit its properties.</div>;
+  const stored: Clip | undefined = chosen[0];
+  if (!stored) {
+    // A captions track is selected by its header, which clears the clip selection.
+    const captionTrack = p.sequence.tracks.find((t) => t.id === selectedTrack && t.kind === "caption");
+    if (captionTrack) return <CaptionTrackInspector track={captionTrack} />;
+    return <div className="empty">Select a clip on the timeline to edit its properties.</div>;
+  }
+  // A caption shows its captions track's settings with its own values on top. `own` tells the clip's own values apart.
+  const c = inherit(stored, p.sequence.tracks);
+  const own = (key: string) => stored.props[key] != null;
 
   const fps = fpsOf(p);
   const track = p.sequence.tracks.find((t) => t.id === c.track);
@@ -216,66 +232,6 @@ function Inspector() {
   const defs = lib.properties.filter((d) => applies(d, c, track, m));
   const groups = [...new Set(defs.map((d) => d.group))];
   const isText = c.kind === "graphic" || c.kind === "caption";
-
-  /** Linked zoom changes both axes together, as in Resolve. */
-  const withLink = (key: string, value: unknown): Record<string, unknown> =>
-    (key === "zoom_x" || key === "zoom_y") && r.b("zoom_link") ? { zoom_x: value, zoom_y: value } : { [key]: value };
-
-  const field = (d: PropDef) => {
-    const changed = r.isSet(d.key);
-    const reset = () => commit(c.id, withLink(d.key, null));
-    switch (d.type) {
-      case "number":
-        return (
-          <NumberField
-            key={d.key}
-            label={d.label}
-            unit={d.unit}
-            value={r.n(d.key)}
-            min={d.min}
-            max={d.max}
-            step={d.step}
-            changed={changed}
-            onLive={(v) => preview(c.id, withLink(d.key, v))}
-            onCommit={(v) => commit(c.id, withLink(d.key, v))}
-          />
-        );
-      case "bool":
-        return (
-          <Row key={d.key} label={d.label} changed={changed} onReset={reset}>
-            <input
-              type="checkbox"
-              data-tip={`${d.label}: tick to turn on`}
-              checked={r.b(d.key)}
-              onChange={(e) => commit(c.id, { [d.key]: e.target.checked })}
-            />
-          </Row>
-        );
-      case "choice":
-        return (
-          <Row key={d.key} label={d.label} changed={changed} onReset={reset}>
-            <select className="span" data-tip={d.label} value={r.s(d.key)} onChange={(e) => commit(c.id, { [d.key]: e.target.value })}>
-              {d.options.map((o) => (
-                <option key={o}>{o}</option>
-              ))}
-            </select>
-          </Row>
-        );
-      case "color":
-        return (
-          <Row key={d.key} label={d.label} changed={changed} onReset={reset}>
-            <input
-              type="color"
-              data-tip={`${d.label}: click to pick a colour`}
-              value={r.s(d.key)}
-              onInput={(e) => preview(c.id, { [d.key]: e.currentTarget.value })}
-              onChange={(e) => commit(c.id, { [d.key]: e.target.value })}
-            />
-            <span className="mono dim">{r.s(d.key)}</span>
-          </Row>
-        );
-    }
-  };
 
   return (
     <div key={c.id} className="insp">
@@ -298,9 +254,10 @@ function Inspector() {
         </Row>
       )}
 
+      {c.kind === "caption" && <p className="hint">The look comes from the Captions track unless a value is set here. Double-click a label to go back to the track's.</p>}
       {groups.map((g) => {
         const inGroup = defs.filter((d) => d.group === g);
-        const touched = inGroup.filter((d) => r.isSet(d.key));
+        const touched = inGroup.filter((d) => own(d.key));
         return (
           <section key={g}>
             <h4>
@@ -314,7 +271,7 @@ function Inspector() {
                 ↺
               </button>
             </h4>
-            {inGroup.map(field)}
+            <PropRows defs={inGroup} r={r} own={own} live={(v) => preview(c.id, v)} commit={(v) => commit(c.id, v)} />
           </section>
         );
       })}
@@ -353,6 +310,142 @@ function Inspector() {
         Drag a number sideways to change it (Shift coarse, Alt fine), click it to type, double-click a label to reset.
         {c.last_actor && c.last_actor !== "user" && <span className="agent"> Last changed by {c.last_actor}.</span>}
       </p>
+    </div>
+  );
+}
+
+/**
+ * The rows for some properties, drawn the same way for a clip and for a captions track. `own` says whether a key is set on
+ * the thing itself rather than inherited, `live` previews values while they are dragged, and `commit` writes them as one undo step.
+ */
+function PropRows({
+  defs,
+  r,
+  own,
+  live,
+  commit,
+}: {
+  defs: PropDef[];
+  r: Reader;
+  own: (key: string) => boolean;
+  live: (values: Record<string, unknown>) => void;
+  commit: (values: Record<string, unknown>) => void;
+}) {
+  /** Linked zoom changes both axes together, as in Resolve. */
+  const withLink = (key: string, value: unknown): Record<string, unknown> =>
+    (key === "zoom_x" || key === "zoom_y") && r.b("zoom_link") ? { zoom_x: value, zoom_y: value } : { [key]: value };
+  return (
+    <>
+      {defs.map((d) => {
+        const changed = own(d.key);
+        const reset = () => commit(withLink(d.key, null));
+        switch (d.type) {
+          case "number":
+            return (
+              <NumberField
+                key={d.key}
+                label={d.label}
+                unit={d.unit}
+                value={r.n(d.key)}
+                min={d.min}
+                max={d.max}
+                step={d.step}
+                changed={changed}
+                onLive={(v) => live(withLink(d.key, v))}
+                onCommit={(v) => commit(withLink(d.key, v))}
+              />
+            );
+          case "bool":
+            return (
+              <Row key={d.key} label={d.label} changed={changed} onReset={reset}>
+                <input type="checkbox" data-tip={`${d.label}: tick to turn on`} checked={r.b(d.key)} onChange={(e) => commit({ [d.key]: e.target.checked })} />
+              </Row>
+            );
+          case "choice":
+            return (
+              <Row key={d.key} label={d.label} changed={changed} onReset={reset}>
+                <select className="span" data-tip={d.label} value={r.s(d.key)} onChange={(e) => commit({ [d.key]: e.target.value })}>
+                  {d.options.map((o) => (
+                    <option key={o}>{o}</option>
+                  ))}
+                </select>
+              </Row>
+            );
+          case "color":
+            return (
+              <Row key={d.key} label={d.label} changed={changed} onReset={reset}>
+                <input
+                  type="color"
+                  data-tip={`${d.label}: click to pick a colour`}
+                  value={r.s(d.key)}
+                  onInput={(e) => live({ [d.key]: e.currentTarget.value })}
+                  onChange={(e) => commit({ [d.key]: e.target.value })}
+                />
+                <span className="mono dim">{r.s(d.key)}</span>
+              </Row>
+            );
+        }
+      })}
+    </>
+  );
+}
+
+/** The groups of a captions track's settings, in the order the Inspector shows them. */
+const TRACK_GROUPS = ["Chunks", "Text", "Transform", "Composite"];
+
+/** A captions track's settings, opened by clicking its header. They apply to every caption on the track. */
+function CaptionTrackInspector({ track }: { track: Track }) {
+  const lib = core.use((s) => s.library)!;
+  const p = core.use((s) => s.state)!.project;
+  const live = ui.use((s) => s.live);
+  const captions = p.sequence.clips.some((c) => c.track === track.id && c.kind === "caption");
+  // The settings are read the way a clip's properties are, through a stand-in clip that holds them.
+  const holder = { id: track.id, props: track.props ?? {}, effects: [] } as unknown as Clip;
+  const r = reader(holder, lib, live);
+  const own = (key: string) => track.props?.[key] != null;
+  const defs = lib.properties.filter((d) => lib.caption_track_keys.includes(d.key));
+  return (
+    <div key={track.id} className="insp">
+      <h4>Captions track</h4>
+      <Row label="Track">
+        <TextField value={`${track.id} · ${track.name}`} tip="The captions track these settings belong to. Double-click its name in the header to rename it." />
+      </Row>
+      <p className="hint">These settings apply to every caption on the track. A caption's own changes in the Inspector override them.</p>
+      {TRACK_GROUPS.map((g) => {
+        const inGroup = defs.filter((d) => d.group === g);
+        if (!inGroup.length) return null;
+        const touched = inGroup.filter((d) => own(d.key));
+        return (
+          <section key={g}>
+            <h4>
+              {g}
+              <button
+                className="ghost reset"
+                disabled={!touched.length}
+                data-tip={`Reset ${g.toLowerCase()}`}
+                onClick={() => commitTrackProps(track.id, Object.fromEntries(touched.map((d) => [d.key, null])))}
+              >
+                ↺
+              </button>
+            </h4>
+            <PropRows defs={inGroup} r={r} own={own} live={(v) => preview(track.id, v)} commit={(v) => commitTrackProps(track.id, v)} />
+            {g === "Chunks" && (
+              <>
+                <p className="hint">A limit of 0 is off. With all three off, each caption keeps the lines the subtitle model gave it.</p>
+                <div className="line">
+                  <button
+                    disabled={!captions}
+                    data-tip="Split the captions on this track that are longer than these limits. Captions that already fit keep their own settings."
+                    onClick={() => void splitCaptions(track.id)}
+                  >
+                    Split long captions
+                  </button>
+                </div>
+              </>
+            )}
+          </section>
+        );
+      })}
     </div>
   );
 }
