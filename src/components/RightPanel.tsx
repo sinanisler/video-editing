@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { aiChat, aiClearKey, aiModels, aiSetKey, aiSetModel, aiState, DEFAULT_MODELS } from "../ai";
-import type { AiModel, AiState, ChatMessage } from "../ai";
+import { aiCancel, aiChat, aiClearKey, aiModels, aiSetKey, aiSetModel, aiState, DEFAULT_MODELS, guidesInfo, onChatProgress, setupGaps } from "../ai";
+import type { AiModel, AiState, ChatMessage, ChatProgress } from "../ai";
 import { reader } from "../look";
 import { commitProps as commit, core, exec, previewProps as preview, toast, ui } from "../store";
 import type { AiSub } from "../store";
@@ -396,16 +396,24 @@ function Chat() {
   const [shown, setShown] = useState<Shown[]>([]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  // What the running turn is doing, so a long job does not look frozen.
+  const [progress, setProgress] = useState<ChatProgress | null>(null);
+  const [stopping, setStopping] = useState(false);
   useEffect(() => {
     aiState().then(setState, (e) => setShown((s) => [...s, { kind: "error", text: String(e) }]));
+    const listening = onChatProgress(setProgress);
+    return () => void listening.then((stop) => stop());
   }, []);
-  const ready = !!state?.has_key && !!state?.agent_model;
+  const gaps = setupGaps(state);
+  const ready = !!state && !gaps.some((g) => g.blocking);
   const send = async () => {
     const text = draft.trim();
     if (!text || busy || !ready) return;
     const next: ChatMessage[] = [...history, { role: "user", content: text }];
     setDraft("");
     setBusy(true);
+    setStopping(false);
+    setProgress(null);
     setShown((s) => [...s, { kind: "user", text }]);
     try {
       const turn = await aiChat(next);
@@ -427,11 +435,11 @@ function Chat() {
   };
   return (
     <>
-      {!ready && (
-        <p className="hint">
-          {state?.has_key ? "Choose a chat model in AI Settings." : "Add your OpenRouter key in AI Settings to start chatting."}
+      {gaps.map((g) => (
+        <p key={g.text} className={g.blocking ? "hint err" : "hint"}>
+          {g.text}
         </p>
-      )}
+      ))}
       <div className="chatlog">
         {shown.length === 0 && ready && (
           <p className="hint">Ask for an edit, for example “remove the silences longer than a second”. Changes show in the timeline and can be undone.</p>
@@ -441,7 +449,11 @@ function Chat() {
             {m.text}
           </div>
         ))}
-        {busy && <div className="chatmsg tools">Thinking…</div>}
+        {busy && (
+          <div className="chatmsg tools">
+            {stopping ? "Stopping after this step…" : progress ? `Step ${progress.round} · ${progress.tool ?? "thinking"}…` : "Thinking…"}
+          </div>
+        )}
       </div>
       <div className="chatinput">
         <textarea
@@ -458,9 +470,22 @@ function Chat() {
             }
           }}
         />
-        <button className="primary" disabled={!ready || busy || !draft.trim()} data-tip="Send this to the AI model" onClick={() => void send()}>
-          Send
-        </button>
+        {busy ? (
+          <button
+            disabled={stopping}
+            data-tip="Stop the AI after the step it is on. What it has done stays and can be undone."
+            onClick={() => {
+              setStopping(true);
+              void aiCancel();
+            }}
+          >
+            Stop
+          </button>
+        ) : (
+          <button className="primary" disabled={!ready || !draft.trim()} data-tip="Send this to the AI model" onClick={() => void send()}>
+            Send
+          </button>
+        )}
       </div>
       <div className="line">
         <button
@@ -534,6 +559,8 @@ function Models() {
   // The chat writes text, so only models with text output are offered.
   const chatOptions = (models ?? []).filter((m) => m.output.includes("text") && (!toolsOnly || m.tools));
   const subtitleOptions = (models ?? []).filter((m) => m.output.includes("transcription"));
+  // The chosen chat model's entry, when the list has it, for what the settings can say about it.
+  const agent = (models ?? []).find((m) => m.id === state?.agent_model) ?? null;
   return (
     <>
       <div className="card">
@@ -574,6 +601,15 @@ function Models() {
         <label className="hint">
           <input type="checkbox" checked={toolsOnly} onChange={(e) => setToolsOnly(e.target.checked)} /> Only models that can use tools
         </label>
+        {agent && !agent.input.includes("image") && (
+          <p className="hint err">
+            This model cannot be shown pictures, so the chat will edit without seeing the footage. Pick a model with image input to let it look before it cuts.
+          </p>
+        )}
+        <p className="hint">
+          A small, cheap model is fine for single changes such as trimming a clip. For a full edit of a long recording, choose a stronger model: it follows the
+          editing guides more closely and costs more per message.
+        </p>
       </div>
       <div className="card">
         <b>Auto to subtitle</b>
@@ -595,10 +631,45 @@ function Models() {
   );
 }
 
+/** The editing guides agents read, and where to put your own. Read when the panel opens, so a new file shows up. */
+function Guides() {
+  const [info, setInfo] = useState<Awaited<ReturnType<typeof guidesInfo>>>(null);
+  useEffect(() => {
+    guidesInfo().then(setInfo, () => setInfo(null));
+  }, []);
+  if (!info) return null;
+  const copy = (text: string) => navigator.clipboard.writeText(text).then(() => toast("Copied"));
+  return (
+    <>
+      <h4>Guides</h4>
+      <div className="card">
+        <p className="hint">How agents are told to edit. The chat and agents connected over MCP read the same ones.</p>
+        {info.guides.map((g) => (
+          <div className="line" key={g.name} data-tip={g.description}>
+            <span className="mono">{g.name}</span>
+            <span className="dim">{g.source === "built-in" ? "built-in" : "from a file"}</span>
+          </div>
+        ))}
+        {info.folder && (
+          <>
+            <p className="hint">To change a guide or add one, put a Markdown file in this folder. Its README says how. Changes apply at once.</p>
+            <div className="line">
+              <input className="mono" readOnly value={info.folder} data-tip="The folder your own guides go in" />
+              <button data-tip="Copy the folder path" onClick={() => copy(info.folder!)}>Copy</button>
+            </div>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
 function Connect() {
   const log = core.use((s) => s.state)!.log;
   const mcp = core.use((s) => s.mcp);
-  const connect = `claude mcp add --transport http snn-editor ${mcp?.url ?? ""}`;
+  // With a token set, the command sends it from the same environment variable the app read it from (PowerShell syntax).
+  const header = mcp?.token_required ? ` --header "Authorization: Bearer $env:SNN_MCP_TOKEN"` : "";
+  const connect = `claude mcp add --transport http snn-editor ${mcp?.url ?? ""}${header}`;
   const copy = (text: string) => navigator.clipboard.writeText(text).then(() => toast("Copied"));
   return (
     <>
@@ -620,10 +691,16 @@ function Connect() {
               <input className="mono" readOnly value={connect} data-tip="Run this in a terminal to connect Claude Code to the editor" />
               <button data-tip="Copy the connect command" onClick={() => copy(connect)}>Copy</button>
             </div>
-            <p className="hint">Only programs on this computer can reach it. Agent edits show up below in purple and can be undone.</p>
+            <p className="hint">
+              {mcp.token_required
+                ? "Only programs on this computer that send the token in SNN_MCP_TOKEN can use it."
+                : "Any program on this computer can use it. To require a token, set SNN_MCP_TOKEN before starting the app."}{" "}
+              Agent edits show up below in purple and can be undone.
+            </p>
           </>
         )}
       </div>
+      <Guides />
       <h4>Activity</h4>
       <div className="log">
         {log.length === 0 && <p className="hint">No activity yet. Make an edit.</p>}

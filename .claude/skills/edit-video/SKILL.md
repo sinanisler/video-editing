@@ -9,10 +9,11 @@ The method lives in the editor, not here, so every agent gets the same one. This
 
 1. The editor must be running (`npm run tauri dev`) and the `snn-editor` MCP server connected. If its tools are missing, tell the user; do not edit project files by hand.
 2. Call `guide_list`, then `guide_get` for `retention-edit`. Follow it, and read the guides it names (`dead-air`, `cold-open`, `pacing-check`) when you reach each pass. Read `channel-atarikafa` for this channel's videos.
-3. The user works in the same open project. Before the first edit, say what you are about to do and ask them to save. Edit only what they asked for.
-4. Look before you cut. `frames_contact_sheet`, `frames_get` and `audio_get_activity` show you the footage; the guide says how to build an inventory with them. There is no transcript, so ask the user for anything that depends on what was said.
+3. The user works in the same open project. Before the first edit, say what you are about to do and save with `project_save` (ask where, if the project has no file yet). Edit only what they asked for. Every tool result ends with a `context` block: the user's playhead and selection, and what they changed since your last call. Read it.
+4. Look before you cut. `frames_contact_sheet`, `frames_get` and `audio_get_activity` show you the footage, and `frames_render` shows a finished frame with effects, cards and captions; the guide says how to build an inventory with them. `speech_transcribe` returns what is said, but it spends the user's OpenRouter credit, so transcribe the stretches you need and ask before doing a whole recording.
+5. Never convert between source and timeline frames yourself. `timeline_locate` does it, and `timeline_ripple_delete_ranges` takes source frames directly.
 
-The guides are `guides/*.md` in this repository. When the user corrects how you edit, change the guide so the correction lasts, and tell them the app has to restart to serve it.
+The guides are `guides/*.md` in this repository. When the user corrects how you edit, change the guide so the correction lasts. A development build reads these files from disk on every call, so the change is served at once; an installed build needs a rebuild, or the same file placed in the user's guides folder (shown in the app under AI, Connect MCP, Guides).
 
 The research behind the numbers is in `SKILLS/` (first 90 seconds, first 5 minutes, and the ZindanCraft shooting plan). Read it when a guide does not cover a case.
 

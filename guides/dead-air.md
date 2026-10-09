@@ -26,11 +26,11 @@ Be hardest on the first half. Viewers who have stayed ten minutes mostly keep wa
 
 1. Start from the silences `audio_get_activity` reports on the voice, and the stretches the contact sheets showed as travel, waiting or menus.
 2. **Look at each one before cutting it.** A sheet over the stretch tells a quiet fight from an empty walk. Keep the first; cut the second.
-3. Turn each dead stretch into a `[from, to)` range. The tools report source frames; a clip that starts at timeline frame `start` showing source frame `source_in` puts source frame `s` at `start + (s - source_in)`.
-4. Leave room around speech: start the cut about 0.15 s after the silence begins and end it about 0.15 s before it ends, so no word is clipped.
+3. Turn each dead stretch into a `[from, to)` range in **source frames**, as the tools report them. Do not convert them to timeline frames.
+4. Leave room around speech: start the cut about 0.15 s after the silence begins and end it about 0.15 s before it ends, so no word is clipped. Where the cut falls inside talk, `speech_transcribe` on that stretch shows where one sentence ends and the next begins; cut there.
 5. Skip ranges shorter than about 0.7 s unless they are true silence between two sentences.
-6. Send all ranges in one `batch_apply` of `timeline_ripple_delete_range`, **last range first**.
-7. Read back the track and check the total length dropped by the sum of the ranges.
+6. Send all ranges in one `timeline_ripple_delete_ranges` call with `media` set to the recording. The order does not matter, and it is one undo step. It reports the timeline ranges it removed and any source range that was not on the timeline.
+7. Check the result: `duration_frames` in the answer dropped by `removed_frames`, and `audio_get_activity` without `media` lists the silences still on the timeline.
 
 If travel has to be seen (the viewer must know how far it was), keep 2 to 4 seconds of it instead of all of it, or speed that piece up: split it out, shorten it with `timeline_trim_clip`, set `speed`, then close the gap it leaves. Mark it for the user to check, because sped-up sound may need covering.
 

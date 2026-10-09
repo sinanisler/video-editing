@@ -38,7 +38,7 @@ Targets: 10 to 15 picture changes in the first 30 seconds, about 23 in the first
 ## Building it
 
 1. Add up the length of the promise and teaser shots. The subscribe card sits over the first seconds of the body, so it needs no room of its own.
-2. Shift the whole body right by that length: `timeline_move_clips` with every clip id and a positive `delta`. Markers do not move with it; re-place them.
+2. Shift the whole body right by that length: `timeline_move_clips` with every clip id, a positive `delta`, and `markers: true` so the markers go with the body.
 3. Add each shot on the gameplay track with `timeline_add_clip`: `media`, `source_in` at the peak, the short `duration`. One `batch_apply`.
 4. Add the title card and subscribe card on the top video track, captions on the caption track.
 5. Add `Zoom punch` on the promise shot and `Whoosh zoom` transitions between teaser shots.

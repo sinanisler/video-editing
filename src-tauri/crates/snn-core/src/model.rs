@@ -115,6 +115,11 @@ impl Clip {
         self.props.get("speed").and_then(Value::as_f64).unwrap_or(100.0) / 100.0
     }
 
+    /// The source frame shown at timeline frame `at`. A faster clip moves through its source faster.
+    pub fn source_at(&self, at: Frame) -> f64 {
+        self.source_in as f64 + (at - self.start) as f64 * self.speed()
+    }
+
     /// True when `at` falls strictly inside the clip, so a split there leaves two non-empty parts.
     pub fn contains_inner(&self, at: Frame) -> bool {
         at > self.start && at < self.end()

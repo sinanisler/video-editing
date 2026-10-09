@@ -19,6 +19,8 @@ pub fn is_analysis(name: &str) -> bool {
 }
 
 const MAX_TILES: i64 = 48;
+/// Each clip on the track is one FFmpeg run, so a span with more clips than this is refused.
+const MAX_AUDIO_PARTS: usize = 240;
 
 /// One picture to pull out of a file.
 #[derive(Clone, Debug)]
@@ -31,9 +33,33 @@ pub struct Shot {
 
 #[derive(Clone, Debug)]
 pub enum Job {
-    Frame { shot: Shot, width: i64 },
+    Frame { shot: Shot, width: i64, info: Value },
     Sheet { shots: Vec<Shot>, columns: i64, tile: (i64, i64), info: Value },
     Audio { path: String, from: Frame, to: Frame, fps: f64, stream: i64, threshold_db: f64, min_seconds: f64 },
+    /// The sound of one audio track of the timeline, clip by clip, reported in timeline frames.
+    TimelineAudio { track: String, parts: Vec<AudioPart>, from: Frame, to: Frame, fps: f64, stream: i64, threshold_db: f64, min_seconds: f64 },
+}
+
+/// The stretch of a file that one clip on the timeline plays.
+#[derive(Clone, Debug)]
+pub struct AudioPart {
+    path: String,
+    /// Source frames of the file to listen to.
+    source: (Frame, Frame),
+    /// Timeline frame where `source.0` is heard, and how fast the clip plays.
+    at: Frame,
+    speed: f64,
+    /// Timeline frames the part covers.
+    span: (Frame, Frame),
+}
+
+/// What FFmpeg heard in a stretch of a file: silences and the loudest moment of each second, in seconds from where
+/// reading started.
+struct Heard {
+    silences: Vec<(f64, f64)>,
+    loud: Vec<(f64, f64)>,
+    /// How many audio streams the file has.
+    streams: usize,
 }
 
 /// What an analysis tool returns: facts as JSON and, for the frame tools, a JPEG.
@@ -42,9 +68,10 @@ pub struct Analysis {
     pub jpeg: Option<Vec<u8>>,
 }
 
-fn timecode(seconds: f64) -> String {
-    let s = seconds.max(0.0) as i64;
-    format!("{}m{:02}s", s / 60, s % 60)
+/// Minutes and seconds to the hundredth, as in `4m07.50s`: two frames half a second apart must not read the same.
+pub fn timecode(seconds: f64) -> String {
+    let hundredths = (seconds.max(0.0) * 100.0).round() as i64;
+    format!("{}m{:02}.{:02}s", hundredths / 6000, hundredths / 100 % 60, hundredths % 100)
 }
 
 /// An even number of pixels, as most encoders and scalers want.
@@ -54,20 +81,24 @@ fn even(n: f64) -> i64 {
 
 impl Editor {
     /// The visible video clip an agent means by a timeline frame: the topmost one that plays a file.
-    fn shot_on_timeline(&self, at: Frame) -> Option<Shot> {
+    fn clip_on_timeline(&self, at: Frame) -> Option<(&Clip, &MediaItem)> {
         let p = self.project();
-        let fps = p.settings.fps_num as f64 / p.settings.fps_den as f64;
         let tracks = p.sequence.tracks.iter().filter(|t| t.kind == TrackKind::Video && !t.hidden);
         for t in tracks {
             let clip = p.sequence.clips.iter().find(|c| c.track == t.id && c.kind == ClipKind::Video && c.start <= at && at < c.end());
             let Some((c, m)) = clip.and_then(|c| Some((c, p.media(c.media.as_ref()?)?))) else { continue };
-            if m.kind != MediaKind::Video {
-                continue;
+            if m.kind == MediaKind::Video {
+                return Some((c, m));
             }
-            let source = c.source_in as f64 + (at - c.start) as f64 * c.speed();
-            return Some(Shot { path: m.path.clone(), seconds: source / fps, label: format!("T {} f{at}", timecode(at as f64 / fps)) });
         }
         None
+    }
+
+    fn shot_on_timeline(&self, at: Frame) -> Option<Shot> {
+        let p = self.project();
+        let fps = p.settings.fps_num as f64 / p.settings.fps_den as f64;
+        let (c, m) = self.clip_on_timeline(at)?;
+        Some(Shot { path: m.path.clone(), seconds: c.source_at(at) / fps, label: format!("T {} f{at}", timecode(at as f64 / fps)) })
     }
 
     fn video(&self, id: &str) -> Result<&MediaItem, String> {
@@ -87,17 +118,39 @@ impl Editor {
         match name {
             "frames_get" => {
                 let at = args["at"].as_i64().filter(|a| *a >= 0).ok_or("at must be a frame number")?;
-                let shot = match media {
+                let width = int("width", 960, 160, 1920);
+                let time = timecode(at as f64 / fps);
+                // The answer says which frame the picture is, in both kinds of frame number when it came off the timeline.
+                let (shot, info) = match media {
                     Some(id) => {
                         let m = self.video(id)?;
                         if at >= m.duration {
                             return Err(format!("{} is only {} frames long", m.name, m.duration));
                         }
-                        Shot { path: m.path.clone(), seconds: at as f64 / fps, label: String::new() }
+                        let shot = Shot { path: m.path.clone(), seconds: at as f64 / fps, label: format!("{time} f{at}") };
+                        (shot, json!({ "frames": "source frames of the media", "media": id, "source_frame": at, "time": time, "seconds": at as f64 / fps, "width": width }))
                     }
-                    None => self.shot_on_timeline(at).ok_or_else(|| format!("no video clip is visible at timeline frame {at}"))?,
+                    None => {
+                        let shot = self.shot_on_timeline(at).ok_or_else(|| format!("no video clip is visible at timeline frame {at}"))?;
+                        let (c, m) = self.clip_on_timeline(at).expect("the shot came from this clip");
+                        let source = c.source_at(at).round() as Frame;
+                        let info = json!({
+                            "frames": "timeline frames",
+                            "timeline_frame": at,
+                            "time": time,
+                            "seconds": at as f64 / fps,
+                            "clip": c.id,
+                            "track": c.track,
+                            "media": m.id,
+                            "source_frame": source,
+                            "source_time": timecode(source as f64 / fps),
+                            "shows": "the footage only: no effects, cards or captions. frames_render shows the finished picture.",
+                            "width": width,
+                        });
+                        (shot, info)
+                    }
                 };
-                Ok(Job::Frame { shot, width: int("width", 960, 160, 1920) })
+                Ok(Job::Frame { shot, width, info })
             }
             "frames_contact_sheet" => {
                 let end = match media {
@@ -139,6 +192,54 @@ impl Editor {
                     "order": "left to right, then top to bottom; each tile is labelled with its time and frame",
                 });
                 Ok(Job::Sheet { shots, columns, tile: (even(width as f64), even(width as f64 / aspect)), info })
+            }
+            "audio_get_activity" if media.is_none() => {
+                // No media: the sound of the edit, on one audio track, as it now plays.
+                let audible = |t: &&Track| t.kind == TrackKind::Audio && p.sequence.clips.iter().any(|c| c.track == t.id && c.media.is_some());
+                let track = match args["track"].as_str() {
+                    Some(id) => p.track(id).filter(|t| t.kind == TrackKind::Audio).ok_or_else(|| format!("{id} is not an audio track"))?,
+                    None => p
+                        .sequence
+                        .tracks
+                        .iter()
+                        .filter(audible)
+                        .find(|t| !t.muted)
+                        .or_else(|| p.sequence.tracks.iter().find(audible))
+                        .ok_or("pass media to analyse a file; the timeline has no audio clips to analyse")?,
+                };
+                let end = p.duration();
+                let from = args["from"].as_i64().unwrap_or(0).max(0);
+                let to = args["to"].as_i64().unwrap_or(end).min(end);
+                if to <= from {
+                    return Err(format!("nothing to analyse between frame {from} and frame {to}"));
+                }
+                let mut clips: Vec<&Clip> = p.sequence.clips.iter().filter(|c| c.track == track.id && c.end() > from && c.start < to).collect();
+                clips.sort_by_key(|c| c.start);
+                let mut parts = vec![];
+                for c in clips {
+                    let Some(m) = c.media.as_ref().and_then(|id| p.media(id)) else { continue };
+                    let span = (c.start.max(from), c.end().min(to));
+                    let source = (c.source_at(span.0).round() as Frame, (c.source_at(span.1).round() as Frame).min(m.duration));
+                    if source.1 > source.0 {
+                        parts.push(AudioPart { path: m.path.clone(), source, at: span.0, speed: c.speed(), span });
+                    }
+                }
+                if parts.is_empty() {
+                    return Err(format!("track {} has no audio clips between frame {from} and frame {to}", track.id));
+                }
+                if parts.len() > MAX_AUDIO_PARTS {
+                    return Err(format!("track {} has {} clips in that span; each is read on its own, so pass from and to for a span with at most {MAX_AUDIO_PARTS}", track.id, parts.len()));
+                }
+                Ok(Job::TimelineAudio {
+                    track: track.id.clone(),
+                    parts,
+                    from,
+                    to,
+                    fps,
+                    stream: int("audio_stream", 0, 0, 31),
+                    threshold_db: args["threshold_db"].as_f64().unwrap_or(-35.0).clamp(-90.0, 0.0),
+                    min_seconds: args["min_seconds"].as_f64().unwrap_or(0.5).clamp(0.1, 60.0),
+                })
             }
             "audio_get_activity" => {
                 let m = p.media(media.ok_or("media must be a media id")?).ok_or("no such media")?;
@@ -270,19 +371,108 @@ fn picture(args: Vec<String>, info: Value) -> Result<Analysis, String> {
 
 const TO_JPEG: [&str; 9] = ["-frames:v", "1", "-q:v", "4", "-f", "image2pipe", "-c:v", "mjpeg", "-"];
 
+/// The first frame of a video file as a JPEG `width` pixels wide.
+pub fn first_frame_jpeg(path: &str, width: i64) -> Result<Vec<u8>, String> {
+    let mut args = vec!["-i".into(), path.into(), "-vf".into(), format!("scale={width}:-2")];
+    args.extend(TO_JPEG.map(String::from));
+    picture(args, Value::Null).map(|a| a.jpeg.unwrap_or_default())
+}
+
 /// The number after `key` in a line of FFmpeg's log, as in `silence_start: 12.5`.
 fn after(line: &str, key: &str) -> Option<f64> {
     line.split(key).nth(1)?.split_whitespace().next()?.parse().ok()
 }
 
+/// Listens to `length` seconds of one audio stream of a file from `start`, finding silences of at least `min_seconds`.
+fn listen(path: &str, start: f64, length: f64, stream: i64, threshold_db: f64, min_seconds: f64) -> Result<Heard, String> {
+    let filter = format!("silencedetect=noise={threshold_db}dB:d={min_seconds},ebur128");
+    let out = run(vec![
+        "-ss".into(), format!("{start:.4}"), "-t".into(), format!("{length:.4}"), "-i".into(), path.into(),
+        "-vn".into(), "-map".into(), format!("0:a:{stream}"), "-af".into(), filter, "-f".into(), "null".into(), "-".into(),
+    ])?;
+    let log = String::from_utf8_lossy(&out.stderr);
+    // The file's own streams are listed before the output's.
+    let streams = log.lines().take_while(|l| !l.starts_with("Output #")).filter(|l| l.trim_start().starts_with("Stream #0:") && l.contains("Audio:")).count();
+    if !out.status.success() {
+        return Err(match streams {
+            0 => "the file has no sound".into(),
+            n if stream >= n as i64 => format!("the file has {n} audio stream(s); audio_stream counts from 0"),
+            _ => failure(&out),
+        });
+    }
+    let mut silences = vec![];
+    let mut open = None;
+    // Loudest moment of each second, so a shout cannot hide inside a quiet stretch.
+    let mut loud: Vec<(f64, f64)> = vec![];
+    for line in log.lines() {
+        if let Some(t) = after(line, "silence_start:") {
+            open = Some(t.max(0.0));
+        } else if let Some(t) = after(line, "silence_end:") {
+            let Some(s) = open.take() else { continue };
+            silences.push((s, t.min(length)));
+        } else if let (true, Some(t), Some(m)) = (line.contains("TARGET:"), after(line, " t:"), after(line, " M:").filter(|m| m.is_finite())) {
+            match loud.last_mut() {
+                Some((at, level)) if at.floor() == t.floor() => {
+                    if m > *level {
+                        (*at, *level) = (t, m);
+                    }
+                }
+                _ => loud.push((t, m)),
+            }
+        }
+    }
+    if let Some(s) = open {
+        silences.push((s, length));
+    }
+    Ok(Heard { silences, loud, streams })
+}
+
+/// The report both kinds of sound analysis give: the silences, how much of the stretch they are, and the 20 loudest
+/// moments at least ten seconds apart, so one long shout is listed once. All in frames.
+fn sound_report(silences: &[(Frame, Frame)], mut loud: Vec<(Frame, f64)>, fps: f64) -> Value {
+    let tenth = |frames: Frame| (frames as f64 / fps * 10.0).round() / 10.0;
+    let silent: Frame = silences.iter().map(|(a, b)| b - a).sum();
+    loud.sort_by(|a, b| b.1.total_cmp(&a.1));
+    let typical = loud.get(loud.len() / 2).map(|(_, level)| *level);
+    let apart = (10.0 * fps) as Frame;
+    let mut peaks: Vec<(Frame, f64)> = vec![];
+    for (at, level) in loud {
+        if peaks.len() < 20 && peaks.iter().all(|(p, _)| (p - at).abs() >= apart) {
+            peaks.push((at, level));
+        }
+    }
+    peaks.sort_by_key(|(at, _)| *at);
+    json!({
+        "silent_seconds": tenth(silent),
+        "silences": silences.iter().map(|(a, b)| json!({ "from": a, "to": b, "seconds": tenth(b - a) })).collect::<Vec<_>>(),
+        "typical_lufs": typical,
+        "loudest": peaks.iter().map(|(at, level)| json!({ "at": at, "time": timecode(*at as f64 / fps), "lufs": level })).collect::<Vec<_>>(),
+    })
+}
+
+/// Adds the fields of `more` to `info`.
+fn with(mut info: Value, more: Value) -> Value {
+    if let (Some(info), Value::Object(more)) = (info.as_object_mut(), more) {
+        info.extend(more);
+    }
+    info
+}
+
 impl Job {
     pub fn run(&self) -> Result<Analysis, String> {
         match self {
-            Job::Frame { shot, width } => {
+            Job::Frame { shot, width, info } => {
+                let font = if cfg!(windows) { "fontfile=arialbd.ttf:" } else { "" };
+                // The same label a contact-sheet tile carries, so a picture passed along still says where it is from.
+                let label = format!(
+                    "drawtext={font}text='{}':fontsize={}:fontcolor=white:box=1:boxcolor=black@0.7:boxborderw=5:x=6:y=6",
+                    shot.label,
+                    (width / 40).max(14),
+                );
                 let mut args = vec!["-ss".into(), format!("{:.4}", shot.seconds), "-i".into(), shot.path.clone()];
-                args.extend(["-vf".into(), format!("scale={width}:-2")]);
+                args.extend(["-vf".into(), format!("scale={width}:-2,{label}")]);
                 args.extend(TO_JPEG.map(String::from));
-                picture(args, json!({ "seconds_into_file": (shot.seconds * 1000.0).round() / 1000.0, "width": width }))
+                picture(args, with(info.clone(), json!({ "seconds_into_file": (shot.seconds * 1000.0).round() / 1000.0 })))
             }
             Job::Sheet { shots, columns, tile: (w, h), info } => {
                 let mut args = vec![];
@@ -295,7 +485,7 @@ impl Job {
                         "[{i}:v]trim=end_frame=1,scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,\
                          drawtext={font}text='{}':fontsize={}:fontcolor=white:box=1:boxcolor=black@0.7:boxborderw=4:x=4:y=4[t{i}];",
                         s.label,
-                        (w / 18).max(12),
+                        (w / 20).max(12),
                     );
                     layout.push(format!("{}_{}", (i as i64 % columns) * w, (i as i64 / columns) * h));
                 }
@@ -309,76 +499,64 @@ impl Job {
                 picture(args, info.clone())
             }
             Job::Audio { path, from, to, fps, stream, threshold_db, min_seconds } => {
-                let start = *from as f64 / fps;
                 let length = (to - from) as f64 / fps;
-                let filter = format!("silencedetect=noise={threshold_db}dB:d={min_seconds},ebur128");
-                let out = run(vec![
-                    "-ss".into(), format!("{start:.4}"), "-t".into(), format!("{length:.4}"), "-i".into(), path.clone(),
-                    "-vn".into(), "-map".into(), format!("0:a:{stream}"), "-af".into(), filter, "-f".into(), "null".into(), "-".into(),
-                ])?;
-                let log = String::from_utf8_lossy(&out.stderr);
-                // The file's own streams are listed before the output's.
-                let streams = log.lines().take_while(|l| !l.starts_with("Output #")).filter(|l| l.trim_start().starts_with("Stream #0:") && l.contains("Audio:")).count();
-                if !out.status.success() {
-                    return Err(match streams {
-                        0 => "the file has no sound".into(),
-                        n if *stream >= n as i64 => format!("the file has {n} audio stream(s); audio_stream counts from 0"),
-                        _ => failure(&out),
-                    });
-                }
+                let heard = listen(path, *from as f64 / fps, length, *stream, *threshold_db, *min_seconds)?;
                 // Times in the log count from where reading started.
-                let frame = |seconds: f64| from + (seconds * fps).round() as Frame;
-                let mut silences = vec![];
-                let mut open = None;
-                // Loudest moment of each second, so a shout cannot hide inside a quiet stretch.
-                let mut loud: Vec<(f64, f64)> = vec![];
-                for line in log.lines() {
-                    if let Some(t) = after(line, "silence_start:") {
-                        open = Some(t.max(0.0));
-                    } else if let Some(t) = after(line, "silence_end:") {
-                        let Some(s) = open.take() else { continue };
-                        silences.push(json!({ "from": frame(s), "to": frame(t.min(length)), "seconds": ((t - s) * 10.0).round() / 10.0 }));
-                    } else if let (true, Some(t), Some(m)) = (line.contains("TARGET:"), after(line, " t:"), after(line, " M:").filter(|m| m.is_finite())) {
-                        match loud.last_mut() {
-                            Some((at, level)) if at.floor() == t.floor() => {
-                                if m > *level {
-                                    (*at, *level) = (t, m);
-                                }
-                            }
-                            _ => loud.push((t, m)),
-                        }
+                let frame = |seconds: f64| (from + (seconds * fps).round() as Frame).min(*to);
+                let silences: Vec<(Frame, Frame)> = heard.silences.iter().map(|(a, b)| (frame(*a), frame(*b))).filter(|(a, b)| b > a).collect();
+                let loud = heard.loud.iter().map(|(t, level)| (frame(*t), *level)).collect();
+                let info = json!({
+                    "frames": "source frames of the media",
+                    "from": from,
+                    "to": to,
+                    "audio_streams_in_file": heard.streams,
+                    "audio_stream": stream,
+                    "silence_threshold_db": threshold_db,
+                    "analysed_seconds": (length * 10.0).round() / 10.0,
+                });
+                Ok(Analysis { info: with(info, sound_report(&silences, loud, *fps)), jpeg: None })
+            }
+            Job::TimelineAudio { track, parts, from, to, fps, stream, threshold_db, min_seconds } => {
+                let mut quiet: Vec<(Frame, Frame)> = vec![];
+                let mut loud = vec![];
+                // Where the track plays nothing, nothing is heard.
+                let mut covered = *from;
+                for part in parts {
+                    if part.span.0 > covered {
+                        quiet.push((covered, part.span.0));
+                    }
+                    covered = covered.max(part.span.1);
+                    let length = (part.source.1 - part.source.0) as f64 / fps;
+                    // A silence can run across a cut, so short ones are kept here and judged once they are joined.
+                    let heard = listen(&part.path, part.source.0 as f64 / fps, length, *stream, *threshold_db, min_seconds.min(0.1))?;
+                    let frame = |seconds: f64| (part.at + (seconds * fps / part.speed).round() as Frame).clamp(part.span.0, part.span.1);
+                    quiet.extend(heard.silences.iter().map(|(a, b)| (frame(*a), frame(*b))).filter(|(a, b)| b > a));
+                    loud.extend(heard.loud.iter().map(|(t, level)| (frame(*t), *level)));
+                }
+                if covered < *to {
+                    quiet.push((covered, *to));
+                }
+                quiet.sort();
+                let mut silences: Vec<(Frame, Frame)> = vec![];
+                for (a, b) in quiet {
+                    match silences.last_mut() {
+                        // Silences that meet at a cut, give or take a frame of rounding, are one silence.
+                        Some(last) if a <= last.1 + 1 => last.1 = last.1.max(b),
+                        _ => silences.push((a, b)),
                     }
                 }
-                if let Some(s) = open {
-                    silences.push(json!({ "from": frame(s), "to": to, "seconds": ((length - s) * 10.0).round() / 10.0 }));
-                }
-                let silent: f64 = silences.iter().filter_map(|s| s["seconds"].as_f64()).sum();
-                // The loudest moments, at least ten seconds apart so one long shout is listed once.
-                loud.sort_by(|a, b| b.1.total_cmp(&a.1));
-                let typical = loud.get(loud.len() / 2).map(|(_, level)| *level);
-                let mut peaks: Vec<(f64, f64)> = vec![];
-                for (t, level) in loud {
-                    if peaks.len() < 20 && peaks.iter().all(|(p, _)| (p - t).abs() >= 10.0) {
-                        peaks.push((t, level));
-                    }
-                }
-                peaks.sort_by(|a, b| a.0.total_cmp(&b.0));
-                Ok(Analysis {
-                    info: json!({
-                        "frames": "source frames of the media",
-                        "from": from,
-                        "to": to,
-                        "audio_streams_in_file": streams,
-                        "audio_stream": stream,
-                        "silence_threshold_db": threshold_db,
-                        "silent_seconds": (silent.max(0.0) * 10.0).round() / 10.0,
-                        "analysed_seconds": (length * 10.0).round() / 10.0,
-                        "silences": silences,
-                        "typical_lufs": typical,
-                        "loudest": peaks.iter().map(|(t, level)| json!({ "at": frame(*t), "lufs": level })).collect::<Vec<_>>(),
-                    }),
-                    jpeg: None,
-                })
+                silences.retain(|(a, b)| (b - a) as f64 / fps >= *min_seconds);
+                let info = json!({
+                    "frames": "timeline frames",
+                    "track": track,
+                    "clips_read": parts.len(),
+                    "from": from,
+                    "to": to,
+                    "audio_stream": stream,
+                    "silence_threshold_db": threshold_db,
+                    "analysed_seconds": ((to - from) as f64 / fps * 10.0).round() / 10.0,
+                });
+                Ok(Analysis { info: with(info, sound_report(&silences, loud, *fps)), jpeg: None })
             }
         }
     }
@@ -475,4 +653,46 @@ pub fn base64(bytes: &[u8]) -> String {
         }
     }
     out
+}
+
+/// Length, picture size and sound of any file FFmpeg reads. The MP4 reader is tried first because it does not
+/// start a program; this covers MKV, WebM, AVI, sound files and pictures.
+pub fn probe_file(path: &str) -> Result<crate::probe::Probe, String> {
+    let out = run(vec!["-i".into(), path.into()])?;
+    parse_probe(&String::from_utf8_lossy(&out.stderr), path).ok_or_else(|| failure(&out))
+}
+
+/// Reads FFmpeg's description of a file: its `Duration:` line and its `Stream` lines.
+pub(crate) fn parse_probe(log: &str, path: &str) -> Option<crate::probe::Probe> {
+    if !log.contains("Input #0") {
+        return None;
+    }
+    let seconds = log
+        .lines()
+        .find_map(|l| l.trim_start().strip_prefix("Duration:"))
+        .and_then(|rest| {
+            let mut parts = rest.split(',').next()?.trim().split(':').map(|n| n.parse::<f64>().ok());
+            Some(parts.next()?? * 3600.0 + parts.next()?? * 60.0 + parts.next()??)
+        })
+        .unwrap_or(0.0);
+    let streams: Vec<&str> = log.lines().filter(|l| l.trim_start().starts_with("Stream #0:")).collect();
+    // Cover art in a music file is listed as a video stream.
+    let video = streams.iter().find(|l| l.contains("Video:") && !l.contains("attached pic"));
+    let has_audio = streams.iter().any(|l| l.contains("Audio:"));
+    let size = video.and_then(|l| {
+        l.split(',').filter_map(|field| field.split_whitespace().next()).find_map(|token| {
+            let (w, h) = token.split_once('x')?;
+            Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?))
+        })
+    });
+    let extension = std::path::Path::new(path).extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let picture = matches!(extension.as_str(), "png" | "jpg" | "jpeg" | "webp" | "bmp" | "gif" | "tif" | "tiff");
+    let kind = match (video.is_some(), has_audio) {
+        (true, _) if picture || seconds < 0.05 => MediaKind::Image,
+        (true, _) => MediaKind::Video,
+        (false, true) => MediaKind::Audio,
+        (false, false) => return None,
+    };
+    let (width, height) = size.unwrap_or((0, 0));
+    Some(crate::probe::Probe { kind, seconds: if kind == MediaKind::Image { 0.0 } else { seconds }, width, height, has_audio: has_audio && kind != MediaKind::Image })
 }

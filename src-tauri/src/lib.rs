@@ -230,6 +230,47 @@ async fn media_audio_streams(core: State<'_, Core>, media: String) -> Result<Vec
         .map_err(|e| e.to_string())?
 }
 
+const GUIDES_README: &str = "Editing guides for snn-editor\r\n\r\n\
+A Markdown file in this folder is a guide that agents read with guide_list and guide_get.\r\n\r\n\
+- A file with the name of a built-in guide replaces it: retention-edit.md, dead-air.md, cold-open.md, pacing-check.md.\r\n\
+- A file with any other name adds a guide, for example my-channel.md. Use lower-case letters, digits and hyphens.\r\n\
+- The first line is the title (# Title). The paragraph under it says when to use the guide.\r\n\
+- Changes apply to the next thing an agent does. Delete a file to get the built-in guide back.\r\n";
+
+/// The folder where the user keeps their own guides, made on first use with a note that says how it works.
+fn user_guides(app: &AppHandle) -> Option<PathBuf> {
+    let dir = app.path().app_data_dir().ok()?.join("guides");
+    std::fs::create_dir_all(&dir).ok()?;
+    let note = dir.join("README.txt");
+    if !note.exists() {
+        let _ = std::fs::write(note, GUIDES_README);
+    }
+    Some(dir)
+}
+
+/// Where guides are read from: the user's folder first. A development build then reads the repository's own
+/// guides from disk, so an edit to one is served without building again.
+fn guide_folders(app: &AppHandle) -> Vec<PathBuf> {
+    let mut folders: Vec<PathBuf> = user_guides(app).into_iter().collect();
+    if cfg!(debug_assertions) {
+        folders.push(PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../guides")));
+    }
+    folders
+}
+
+/// The guides agents are offered, and the folder the user's own ones go in.
+#[tauri::command]
+fn guides_info(app: AppHandle) -> serde_json::Value {
+    serde_json::json!({ "folder": user_guides(&app).map(|d| d.display().to_string()), "guides": snn_core::guides() })
+}
+
+/// The window says where the playhead is and which clips are selected, so agents can be told what the user is
+/// looking at. Nothing is published back: this is the window's own state.
+#[tauri::command]
+fn set_view(core: State<Core>, frame: i64, selection: Vec<String>) {
+    core.0.lock().unwrap().set_view(frame, selection);
+}
+
 #[tauri::command]
 fn execute(app: AppHandle, core: State<Core>, command: Command) -> Result<serde_json::Value, String> {
     let mut editor = core.0.lock().unwrap();
@@ -324,6 +365,7 @@ pub fn run() {
         .manage(Core(editor.clone()))
         .manage(export::SharedExports::default())
         .setup(move |app| {
+            snn_core::set_guide_folders(guide_folders(app.handle()));
             app.manage(mcp::start(app.handle().clone(), editor.clone()));
             Ok(())
         })
@@ -334,6 +376,7 @@ pub fn run() {
             ai::ai_set_model,
             ai::ai_models,
             ai::ai_chat,
+            ai::ai_cancel,
             ai::ai_transcribe,
             media_audio_streams,
             get_state,
@@ -344,6 +387,8 @@ pub fn run() {
             probe_audio,
             filmstrip,
             waveform,
+            set_view,
+            guides_info,
             execute,
             execute_batch,
             undo,

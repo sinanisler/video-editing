@@ -79,6 +79,9 @@ pub enum Command {
         delta: Frame,
         #[serde(default)]
         tracks: BTreeMap<String, String>,
+        /// Also shifts the markers that sit over the moved clips, from the first one's start to the last one's end.
+        #[serde(default)]
+        markers: bool,
     },
     /// Copies clips, with their properties and effects, `delta` frames later (or earlier) on the same tracks.
     /// Copies of linked clips are linked to each other, not to the originals.
@@ -107,6 +110,15 @@ pub enum Command {
     /// Removes `[from, to)` from every unlocked track and shifts everything after it left.
     #[serde(rename = "timeline.ripple_delete_range")]
     RippleDeleteRange { from: Frame, to: Frame },
+    /// Removes several spans in one step. Every span is given in the timeline as it is before the call, in any
+    /// order; overlapping spans are joined. With `media`, the spans are source frames of that file instead, and
+    /// whatever part of them is on the timeline is removed, wherever the cuts so far have moved it.
+    #[serde(rename = "timeline.ripple_delete_ranges")]
+    RippleDeleteRanges {
+        ranges: Vec<Span>,
+        #[serde(default)]
+        media: Option<String>,
+    },
     #[serde(rename = "timeline.add_marker")]
     AddMarker { at: Frame, label: String },
     #[serde(rename = "timeline.remove_marker")]
@@ -160,6 +172,13 @@ pub enum Command {
         #[serde(default)]
         edge: Edge,
     },
+}
+
+/// Frames `from` up to, but not including, `to`.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Span {
+    pub from: Frame,
+    pub to: Frame,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -286,6 +305,68 @@ fn split_at(p: &mut Project, clip: &str, at: Frame, actor: &str, links: &mut BTr
     id
 }
 
+/// Removes `[from, to)` from every unlocked track and closes the gap. Returns how many clips went and how many
+/// tracks were locked and so left alone.
+fn ripple_delete(p: &mut Project, from: Frame, to: Frame, actor: &str) -> (usize, usize) {
+    let len = to - from;
+    let open: Vec<String> = p.sequence.tracks.iter().filter(|t| !t.locked).map(|t| t.id.clone()).collect();
+    let locked = p.sequence.tracks.len() - open.len();
+    for edge in [from, to] {
+        let hit: Vec<String> = p.sequence.clips.iter().filter(|c| open.contains(&c.track) && c.contains_inner(edge)).map(|c| c.id.clone()).collect();
+        let mut links = BTreeMap::new();
+        for id in hit {
+            split_at(p, &id, edge, actor, &mut links);
+        }
+    }
+    let before = p.sequence.clips.len();
+    p.sequence.clips.retain(|c| !(open.contains(&c.track) && c.start >= from && c.end() <= to));
+    let removed = before - p.sequence.clips.len();
+    for c in p.sequence.clips.iter_mut().filter(|c| open.contains(&c.track) && c.start >= to) {
+        c.start -= len;
+    }
+    p.sequence.markers.retain(|m| m.at < from || m.at >= to);
+    for m in p.sequence.markers.iter_mut().filter(|m| m.at >= to) {
+        m.at -= len;
+    }
+    p.sequence.in_point = None;
+    p.sequence.out_point = None;
+    (removed, locked)
+}
+
+/// Where the source frames `[from, to)` of a file are on the timeline now: one span for each clip that shows part
+/// of them, on any track. A clip played faster covers its source in fewer timeline frames.
+pub(crate) fn source_on_timeline(p: &Project, media: &str, from: Frame, to: Frame) -> Vec<(String, Span)> {
+    let mut found = vec![];
+    for c in p.sequence.clips.iter().filter(|c| c.media.as_deref() == Some(media)) {
+        let speed = c.speed();
+        let source_end = c.source_in as f64 + c.duration as f64 * speed;
+        let (a, b) = ((from as f64).max(c.source_in as f64), (to as f64).min(source_end));
+        if b <= a {
+            continue;
+        }
+        let at = |s: f64| c.start + ((s - c.source_in as f64) / speed).round() as Frame;
+        let span = Span { from: at(a).clamp(c.start, c.end()), to: at(b).clamp(c.start, c.end()) };
+        if span.to > span.from {
+            found.push((c.id.clone(), span));
+        }
+    }
+    found.sort_by_key(|(_, s)| (s.from, s.to));
+    found
+}
+
+/// Sorts spans and joins the ones that overlap or touch.
+fn joined(mut spans: Vec<Span>) -> Vec<Span> {
+    spans.sort_by_key(|s| (s.from, s.to));
+    let mut out: Vec<Span> = vec![];
+    for s in spans {
+        match out.last_mut() {
+            Some(last) if s.from <= last.to => last.to = last.to.max(s.to),
+            _ => out.push(s),
+        }
+    }
+    out
+}
+
 /// Applies one command. On error the project may be half-changed; [`crate::Editor`] restores it.
 pub fn apply(p: &mut Project, cmd: &Command, actor: &str) -> R<Value> {
     match cmd {
@@ -401,7 +482,7 @@ pub fn apply(p: &mut Project, cmd: &Command, actor: &str) -> R<Value> {
             c.last_actor = Some(actor.into());
             Ok(json!({ "clip": clip, "track": target, "start": start }))
         }
-        Command::MoveClips { clips, delta, tracks } => {
+        Command::MoveClips { clips, delta, tracks, markers } => {
             if clips.is_empty() {
                 return Err("no clips given".into());
             }
@@ -436,6 +517,8 @@ pub fn apply(p: &mut Project, cmd: &Command, actor: &str) -> R<Value> {
                     return Err(format!("{} would overlap {} on track {}", id, l.0, track));
                 }
             }
+            // The stretch of timeline the clips covered before they moved; markers over it belong to them.
+            let covered = (landing.iter().map(|l| l.2 - delta).min().unwrap_or(0), landing.iter().map(|l| l.3 - delta).max().unwrap_or(0));
             for c in p.sequence.clips.iter_mut().filter(|c| clips.contains(&c.id)) {
                 c.start += delta;
                 if let Some(track) = tracks.get(&c.id) {
@@ -443,7 +526,14 @@ pub fn apply(p: &mut Project, cmd: &Command, actor: &str) -> R<Value> {
                 }
                 c.last_actor = Some(actor.into());
             }
-            Ok(json!({ "moved": clips, "delta": delta, "tracks": tracks }))
+            let mut markers_moved = 0;
+            if *markers {
+                for m in p.sequence.markers.iter_mut().filter(|m| m.at >= covered.0 && m.at < covered.1) {
+                    m.at += delta;
+                    markers_moved += 1;
+                }
+            }
+            Ok(json!({ "moved": clips, "delta": delta, "tracks": tracks, "markers_moved": markers_moved }))
         }
         Command::DuplicateClips { clips, delta } => {
             if clips.is_empty() {
@@ -559,36 +649,56 @@ pub fn apply(p: &mut Project, cmd: &Command, actor: &str) -> R<Value> {
             if *from < 0 || to <= from {
                 return Err("range needs 0 <= from < to".into());
             }
-            let (from, to, len) = (*from, *to, to - from);
-            let open: Vec<String> =
-                p.sequence.tracks.iter().filter(|t| !t.locked).map(|t| t.id.clone()).collect();
-            let locked = p.sequence.tracks.len() - open.len();
-            for edge in [from, to] {
-                let hit: Vec<String> = p
-                    .sequence
-                    .clips
-                    .iter()
-                    .filter(|c| open.contains(&c.track) && c.contains_inner(edge))
-                    .map(|c| c.id.clone())
-                    .collect();
-                let mut links = BTreeMap::new();
-                for id in hit {
-                    split_at(p, &id, edge, actor, &mut links);
+            let (removed, locked) = ripple_delete(p, *from, *to, actor);
+            Ok(json!({ "removed_frames": to - from, "clips_removed": removed, "locked_tracks_skipped": locked }))
+        }
+        Command::RippleDeleteRanges { ranges, media } => {
+            if ranges.is_empty() {
+                return Err("no ranges given".into());
+            }
+            if let Some(bad) = ranges.iter().find(|r| r.from < 0 || r.to <= r.from) {
+                return Err(format!("range {} to {} needs 0 <= from < to", bad.from, bad.to));
+            }
+            let mut not_on_timeline = vec![];
+            let spans = match media {
+                None => ranges.clone(),
+                Some(id) => {
+                    p.media(id).ok_or_else(|| format!("no media {id}"))?;
+                    let mut spans = vec![];
+                    for r in ranges {
+                        let places = source_on_timeline(p, id, r.from, r.to);
+                        if places.is_empty() {
+                            not_on_timeline.push(*r);
+                        }
+                        spans.extend(places.into_iter().map(|(_, span)| span));
+                    }
+                    if spans.is_empty() {
+                        return Err(format!("none of those source frames of {id} is on the timeline"));
+                    }
+                    spans
                 }
+            };
+            let spans = joined(spans);
+            let (mut clips_removed, mut locked) = (0, 0);
+            // Last first, so removing one span does not move the ones still to come.
+            for s in spans.iter().rev() {
+                let (removed, skipped) = ripple_delete(p, s.from, s.to, actor);
+                clips_removed += removed;
+                locked = skipped;
             }
-            let before = p.sequence.clips.len();
-            p.sequence.clips.retain(|c| !(open.contains(&c.track) && c.start >= from && c.end() <= to));
-            let removed = before - p.sequence.clips.len();
-            for c in p.sequence.clips.iter_mut().filter(|c| open.contains(&c.track) && c.start >= to) {
-                c.start -= len;
+            let removed_frames: Frame = spans.iter().map(|s| s.to - s.from).sum();
+            let mut result = json!({
+                "ranges_removed": spans.len(),
+                "removed_frames": removed_frames,
+                "clips_removed": clips_removed,
+                "locked_tracks_skipped": locked,
+                "duration_frames": p.duration(),
+            });
+            if media.is_some() {
+                result["timeline_ranges_removed"] = json!(spans);
+                result["source_ranges_not_on_timeline"] = json!(not_on_timeline);
             }
-            p.sequence.markers.retain(|m| m.at < from || m.at >= to);
-            for m in p.sequence.markers.iter_mut().filter(|m| m.at >= to) {
-                m.at -= len;
-            }
-            p.sequence.in_point = None;
-            p.sequence.out_point = None;
-            Ok(json!({ "removed_frames": len, "clips_removed": removed, "locked_tracks_skipped": locked }))
+            Ok(result)
         }
         Command::AddMarker { at, label } => {
             if *at < 0 {

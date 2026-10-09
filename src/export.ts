@@ -118,12 +118,16 @@ export async function startExport(settings: ExportSettings, job?: number): Promi
 }
 
 let listening = false;
+/** In the name of every file a rendered frame is exported to. Mirrors `FRAME_PREFIX` in the Rust side. */
+const FRAME_FILE = "snn-frame-";
 
 export async function initExport() {
   // React runs effects twice in development; two listeners would start every requested export twice.
   if (listening) return;
   listening = true;
   await listen<ExportStatus>("export:status", ({ payload }) => {
+    // A frame an agent asked to see is a one-frame export to a temporary file. It is not the user's export.
+    if (payload.path.includes(FRAME_FILE)) return;
     const before = core.get().exportStatus;
     core.set({ exportStatus: payload });
     if (payload.state !== before?.state) {
@@ -131,7 +135,8 @@ export async function initExport() {
       if (payload.state === "failed") toast(`Export failed: ${payload.message}`);
     }
   });
-  // An agent asked for an export over MCP.
+  // An agent asked for an export over MCP. The settings go back to the core as they came: a frame rendered for
+  // an agent carries a range of timeline frames, which the export window never offers.
   await listen<{ job: number; settings: ExportSettings }>("export:request", ({ payload }) => {
     void startExport(payload.settings, payload.job);
   });

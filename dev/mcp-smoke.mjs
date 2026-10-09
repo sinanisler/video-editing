@@ -12,6 +12,7 @@ const KEEP = process.argv.includes("--keep");
 let session;
 let nextId = 1;
 let steps = 0; // undo steps this script has added
+let lastContext = null; // the context block of the newest tool result
 const results = { pass: 0, fail: 0, warn: 0 };
 
 function report(kind, label, detail) {
@@ -22,6 +23,8 @@ const check = (label, ok, detail) => report(ok ? "pass" : "fail", label, ok ? ""
 
 async function post(body, headers = {}, path = "") {
   const h = { "Content-Type": "application/json", Accept: "application/json, text/event-stream", ...headers };
+  // The app asks for a token when it was started with SNN_MCP_TOKEN set; run this with the same variable.
+  if (process.env.SNN_MCP_TOKEN && !("Authorization" in h)) h.Authorization = `Bearer ${process.env.SNN_MCP_TOKEN}`;
   if (session) h["Mcp-Session-Id"] = session;
   const r = await fetch(URL + path, { method: "POST", headers: h, body: typeof body === "string" ? body : JSON.stringify(body) });
   session = r.headers.get("mcp-session-id") ?? session;
@@ -40,7 +43,10 @@ async function tool(name, args = {}) {
   const r = await rpc("tools/call", { name, arguments: args });
   const result = r.json?.result;
   if (!result) return { ok: false, data: JSON.stringify(r.json?.error ?? r.status) };
-  const text = result.content?.[0]?.text ?? "";
+  const text = result.content?.find((c) => c.type === "text")?.text ?? "";
+  // Every result ends with a context block: the playhead, the selection and what others changed.
+  const tail = result.content?.at(-1)?.text ?? "";
+  lastContext = tail.startsWith("context: ") ? JSON.parse(tail.slice(9)) : null;
   if (result.isError) return { ok: false, data: text };
   try {
     return { ok: true, data: JSON.parse(text) };
@@ -127,8 +133,8 @@ async function main() {
   await rejected("video clip on an audio track is rejected", "timeline_add_clip", { track: "A1", start: 0, duration: 10, name: "x", kind: "video", media: media.id });
 
   // --- Dead-air pass: 60 cuts in one undo step -----------------------------------------------
-  // Each cut is [from, to) in the timeline as it is now. They are sent last to first, so removing
-  // one does not move the ones still to come.
+  // Each cut is [from, to) in source frames of the recording, sent in no particular order: the
+  // editor finds where each one is on the timeline and allows for every removal moving the rest.
   const cuts = [];
   for (let i = 0; i < 60; i++) {
     const from = sec(20 + i * 58);
@@ -136,8 +142,10 @@ async function main() {
   }
   const removed = cuts.reduce((n, [a, b]) => n + (b - a), 0);
   const t0 = performance.now();
-  await edit("batch_apply", { commands: [...cuts].reverse().map(([from, to]) => ({ tool: "timeline_ripple_delete_range", args: { from, to } })) });
+  const shuffled = cuts.map(([from, to], i) => ({ from, to, key: (i * 37) % 60 })).sort((a, b) => a.key - b.key).map(({ from, to }) => ({ from, to }));
+  const cutResult = await edit("timeline_ripple_delete_ranges", { media: media.id, ranges: shuffled });
   const batchMs = performance.now() - t0;
+  check("the cut reports what it removed", cutResult.ranges_removed === 60 && cutResult.removed_frames === removed && cutResult.duration_frames === RAW - removed, JSON.stringify(cutResult).slice(0, 200));
 
   let v1 = await clipsOn("V1");
   check("60 cuts leave 61 pieces", v1.length === 61, `${v1.length} pieces`);
@@ -160,8 +168,32 @@ async function main() {
   const marker = (await edit("timeline_add_marker", { at: sec(60), label: "check this" })).marker;
   const OPEN = sec(12);
   await edit("timeline_move_clips", { clips: v1.map((c) => c.id), delta: OPEN });
+  const stayed = (await tool("timeline_get_state", { from: 0, to: 1 })).data.markers.find((m) => m.id === marker);
+  check("markers stay unless asked to move", stayed?.at === sec(60), `${stayed?.at}`);
+  await tool("history_undo");
+  steps--;
+  await edit("timeline_move_clips", { clips: v1.map((c) => c.id), delta: OPEN, markers: true });
   const moved = (await tool("timeline_get_state", { from: 0, to: 1 })).data.markers.find((m) => m.id === marker);
-  if (moved?.at === sec(60)) report("warn", "markers stay behind when clips are shifted", "re-place markers after making room for an intro");
+  check("markers travel with the clips when asked", moved?.at === sec(60) + OPEN, `${moved?.at}`);
+
+  // --- Frames without arithmetic ----------------------------------------------------------------
+  // Source second 100 comes after the first two cuts (4 s and 7 s), and the intro has pushed it right.
+  const where = (await tool("timeline_locate", { media: media.id, source: sec(100) })).data;
+  check("a source frame is found on the timeline", where.on_timeline?.[0]?.timeline_frame === sec(100) - sec(11) + OPEN, JSON.stringify(where));
+  const under = (await tool("timeline_locate", { at: where.on_timeline?.[0]?.timeline_frame ?? 0 })).data;
+  check("and the timeline frame leads back to it", under.clips?.[0]?.source_frame === sec(100) && under.clips?.[0]?.media === media.id, JSON.stringify(under));
+  const cutOut = (await tool("timeline_locate", { media: media.id, source: sec(21) })).data;
+  check("a frame that was cut out is reported as gone", cutOut.on_timeline?.length === 0 && !!cutOut.note, JSON.stringify(cutOut));
+
+  // --- What the agent is told without asking ----------------------------------------------------
+  check("every result carries a context block", typeof lastContext?.playhead === "number" && Array.isArray(lastContext?.selection) && lastContext?.unsaved_changes === true, JSON.stringify(lastContext));
+  check("its own edits are not reported back to it as news", !lastContext?.changed_by_others_since_your_last_call, JSON.stringify(lastContext));
+  await tool("view_set", { frame: sec(5), select: [v1[0].id] });
+  const view = (await tool("view_get")).data;
+  check("the view an agent sets is the view it reads", view.playhead === sec(5) && view.selection?.[0]?.clip === v1[0].id, JSON.stringify(view));
+  await tool("view_set", { frame: 0, select: [] });
+  const unsaved = await tool("project_save");
+  check("saving a project that has no file asks for a path", !unsaved.ok && unsaved.data.includes("no file yet"), String(unsaved.data));
 
   // Three teaser shots copied from later in the recording, 1.5 s each, after a 4 s promise shot.
   const picks = [sec(3000), sec(1200), sec(2400), sec(3500)];

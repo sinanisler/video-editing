@@ -23,10 +23,33 @@ pub struct McpStatus {
     pub url: String,
     pub error: Option<String>,
     pub tools: usize,
+    /// True when callers must send the token in `SNN_MCP_TOKEN`.
+    pub token_required: bool,
 }
 
-/// Session id → client name, taken from the client's `initialize` call and used as the actor.
-type Sessions = HashMap<String, String>;
+/// When this is set in the app's environment, every request must carry it as `Authorization: Bearer <token>`.
+/// Without it any program on this computer can drive the editor, which is fine on a machine only the user runs
+/// things on and not fine once the port is tunnelled or shared.
+const TOKEN_VAR: &str = "SNN_MCP_TOKEN";
+
+struct Session {
+    /// The client's name from its `initialize` call, used as the actor.
+    client: String,
+    /// The newest log entry this session has been told about.
+    seen: u64,
+}
+
+type Sessions = HashMap<String, Session>;
+
+/// Compares in the same time whatever the bytes are, so a wrong token does not reveal how much of it was right.
+fn same(a: &str, b: &str) -> bool {
+    a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0, |diff, (x, y)| diff | (x ^ y)) == 0
+}
+
+fn authorised(req: &Request, token: Option<&str>) -> bool {
+    let Some(token) = token else { return true };
+    find_header(req, "Authorization").and_then(|h| h.strip_prefix("Bearer ").map(|t| same(t.trim(), token))).unwrap_or(false)
+}
 
 fn header(name: &str, value: &str) -> Header {
     Header::from_bytes(name.as_bytes(), value.as_bytes()).expect("static header")
@@ -61,6 +84,7 @@ struct Ctx<'a> {
     editor: &'a SharedEditor,
     sessions: &'a mut Sessions,
     next_session: &'a AtomicU64,
+    token: Option<&'a str>,
 }
 
 /// Handles one JSON-RPC message. Returns the response, if the message was a request, and a new session id, if one was created.
@@ -76,7 +100,9 @@ fn handle_message(ctx: &mut Ctx, msg: &Value, session: Option<&str>) -> (Option<
             let version = if PROTOCOLS.contains(&wanted) { wanted } else { PROTOCOLS[0] };
             let client = params["clientInfo"]["name"].as_str().unwrap_or("agent").to_string();
             let sid = format!("snn-{:x}-{:x}", std::process::id(), ctx.next_session.fetch_add(1, Ordering::Relaxed));
-            ctx.sessions.insert(sid.clone(), client);
+            // A new session is told about changes from now on, not about everything already in the log.
+            let seen = ctx.editor.lock().unwrap().seq();
+            ctx.sessions.insert(sid.clone(), Session { client, seen });
             let result = json!({
                 "protocolVersion": version,
                 "capabilities": { "tools": { "listChanged": false }, "prompts": { "listChanged": false } },
@@ -112,65 +138,93 @@ fn handle_message(ctx: &mut Ctx, msg: &Value, session: Option<&str>) -> (Option<
             let Some(name) = params["name"].as_str() else {
                 return (Some(rpc_error(id, -32602, "tools/call needs a tool name")), None);
             };
-            let actor = session.and_then(|s| ctx.sessions.get(s)).cloned().unwrap_or_else(|| "agent".into());
-            if snn_core::is_export(name) {
-                let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
-                let exports = ctx.app.state::<crate::export::SharedExports>();
-                let result = crate::export::tool(ctx.app, &exports, ctx.editor, name, &arguments);
-                // An agent asks for the status many times a minute; that would push everything else out of the log.
-                if name != "export_get_status" {
-                    let mut editor = ctx.editor.lock().unwrap();
-                    editor.log_tool(&actor, name, arguments, &result);
-                    publish(ctx.app, &editor);
-                }
-                let (text, is_error) = match result {
-                    Ok(v) => (serde_json::to_string_pretty(&v).unwrap_or_default(), false),
-                    Err(e) => (e, true),
-                };
-                return (ok(json!({ "content": [{ "type": "text", "text": text }], "isError": is_error })), None);
-            }
-            if snn_core::is_analysis(name) {
-                return (ok(analyse(ctx, &actor, name, params.get("arguments").cloned().unwrap_or(json!({})))), None);
-            }
-            let mut editor = ctx.editor.lock().unwrap();
+            let actor = session.and_then(|s| ctx.sessions.get(s)).map(|s| s.client.clone()).unwrap_or_else(|| "agent".into());
             let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
-            let result = editor.call_tool(&actor, name, arguments.clone());
-            if name == "view_set" && result.is_ok() {
-                let _ = ctx.app.emit("editor:view", arguments);
+            let (mut content, is_error) = run_tool(ctx, &actor, name, arguments);
+            // What the user is looking at, and what anyone else changed since this session last called.
+            let editor = ctx.editor.lock().unwrap();
+            let seen = session.and_then(|s| ctx.sessions.get(s)).map(|s| s.seen).unwrap_or_else(|| editor.seq());
+            content.push(json!({ "type": "text", "text": format!("context: {}", editor.context(&actor, seen)) }));
+            if let Some(s) = session.and_then(|s| ctx.sessions.get_mut(s)) {
+                s.seen = editor.seq();
             }
-            allow_media(ctx.app, &editor);
-            publish(ctx.app, &editor);
-            let (text, is_error) = match result {
-                // A guide is Markdown; as a JSON string every line break in it would be escaped.
-                Ok(Value::String(s)) => (s, false),
-                Ok(v) => (serde_json::to_string_pretty(&v).unwrap_or_default(), false),
-                Err(e) => (e, true),
-            };
-            (ok(json!({ "content": [{ "type": "text", "text": text }], "isError": is_error })), None)
+            (ok(json!({ "content": content, "isError": is_error })), None)
         }
         other => (Some(rpc_error(id, -32601, &format!("method {other} is not supported"))), None),
     }
 }
 
-/// Runs a tool that reads media with FFmpeg. The editor is only locked to read the project and to
-/// write the log, so the window stays usable while a long file is analysed.
-fn analyse(ctx: &mut Ctx, actor: &str, name: &str, arguments: Value) -> Value {
-    let job = ctx.editor.lock().unwrap().analysis_job(name, &arguments);
-    let result = job.and_then(|job| job.run());
-    let mut editor = ctx.editor.lock().unwrap();
-    editor.log_analysis(actor, name, arguments, &result);
-    publish(ctx.app, &editor);
+fn text(result: Result<Value, String>) -> (Vec<Value>, bool) {
+    let (text, is_error) = match result {
+        // A guide is Markdown; as a JSON string every line break in it would be escaped.
+        Ok(Value::String(s)) => (s, false),
+        Ok(v) => (serde_json::to_string_pretty(&v).unwrap_or_default(), false),
+        Err(e) => (e, true),
+    };
+    (vec![json!({ "type": "text", "text": text })], is_error)
+}
+
+/// A picture with the facts about it, or the reason there is none.
+fn pictured(result: Result<snn_core::Analysis, String>) -> (Vec<Value>, bool) {
     match result {
         Ok(a) => {
             let mut content = vec![json!({ "type": "text", "text": serde_json::to_string_pretty(&a.info).unwrap_or_default() })];
             if let Some(jpeg) = a.jpeg {
                 content.insert(0, json!({ "type": "image", "data": snn_core::base64(&jpeg), "mimeType": "image/jpeg" }));
             }
-            json!({ "content": content, "isError": false })
+            (content, false)
         }
-        Err(e) => json!({ "content": [{ "type": "text", "text": e }], "isError": true }),
+        Err(e) => (vec![json!({ "type": "text", "text": e })], true),
     }
 }
+
+/// Runs one tool and returns what to send back. The slow tools (FFmpeg, the speech model, a rendered frame) run
+/// without the editor locked, so the window stays usable; the editor is locked only to read the project and to
+/// write the log.
+fn run_tool(ctx: &mut Ctx, actor: &str, name: &str, arguments: Value) -> (Vec<Value>, bool) {
+    if snn_core::is_export(name) {
+        let exports = ctx.app.state::<crate::export::SharedExports>();
+        let result = crate::export::tool(ctx.app, &exports, ctx.editor, name, &arguments);
+        // An agent asks for the status many times a minute; that would push everything else out of the log.
+        if name != "export_get_status" {
+            let mut editor = ctx.editor.lock().unwrap();
+            editor.log_tool(actor, name, arguments, &result);
+            publish(ctx.app, &editor);
+        }
+        return text(result);
+    }
+    if name == "speech_transcribe" {
+        let result = crate::ai::speech_tool(ctx.app, ctx.editor, &arguments);
+        let mut editor = ctx.editor.lock().unwrap();
+        // The log says how much was heard, not every line of it.
+        let logged = result.as_ref().map(|v| json!({ "lines": v["lines"].as_array().map_or(0, Vec::len), "model": v["model"] })).map_err(String::clone);
+        editor.log_tool(actor, name, arguments, &logged);
+        publish(ctx.app, &editor);
+        return text(result);
+    }
+    if name == "frames_render" || snn_core::is_analysis(name) {
+        let result = if name == "frames_render" {
+            let exports = ctx.app.state::<crate::export::SharedExports>();
+            crate::export::render_frame(ctx.app, &exports, ctx.editor, &arguments)
+        } else {
+            let job = ctx.editor.lock().unwrap().analysis_job(name, &arguments);
+            job.and_then(|job| job.run())
+        };
+        let mut editor = ctx.editor.lock().unwrap();
+        editor.log_analysis(actor, name, arguments, &result);
+        publish(ctx.app, &editor);
+        return pictured(result);
+    }
+    let mut editor = ctx.editor.lock().unwrap();
+    let result = editor.call_tool(actor, name, arguments.clone());
+    if name == "view_set" && result.is_ok() {
+        let _ = ctx.app.emit("editor:view", arguments);
+    }
+    allow_media(ctx.app, &editor);
+    publish(ctx.app, &editor);
+    text(result)
+}
+
 
 fn handle(ctx: &mut Ctx, mut req: Request) {
     if req.url().split('?').next() != Some("/mcp") {
@@ -178,6 +232,10 @@ fn handle(ctx: &mut Ctx, mut req: Request) {
     }
     if !origin_allowed(&req) {
         return reply(req, 403, json!({ "error": "origin not allowed" }).to_string(), None);
+    }
+    if !authorised(&req, ctx.token) {
+        let message = format!("this editor needs a token: send the value of {TOKEN_VAR} as Authorization: Bearer <token>");
+        return reply(req, 401, json!({ "error": message }).to_string(), Some(header("WWW-Authenticate", "Bearer")));
     }
     let session = find_header(&req, "Mcp-Session-Id");
     match req.method() {
@@ -222,17 +280,19 @@ fn handle(ctx: &mut Ctx, mut req: Request) {
 pub fn start(app: AppHandle, editor: SharedEditor) -> McpStatus {
     let url = format!("http://127.0.0.1:{PORT}/mcp");
     let tools = snn_core::catalog().len();
+    let token = std::env::var(TOKEN_VAR).ok().map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
+    let token_required = token.is_some();
     let server = match Server::http(("127.0.0.1", PORT)) {
         Ok(s) => s,
-        Err(e) => return McpStatus { running: false, url, error: Some(format!("port {PORT} is not available: {e}")), tools },
+        Err(e) => return McpStatus { running: false, url, error: Some(format!("port {PORT} is not available: {e}")), tools, token_required },
     };
     std::thread::spawn(move || {
         let mut sessions = Sessions::new();
         let next_session = AtomicU64::new(1);
         for request in server.incoming_requests() {
-            let mut ctx = Ctx { app: &app, editor: &editor, sessions: &mut sessions, next_session: &next_session };
+            let mut ctx = Ctx { app: &app, editor: &editor, sessions: &mut sessions, next_session: &next_session, token: token.as_deref() };
             handle(&mut ctx, request);
         }
     });
-    McpStatus { running: true, url, error: None, tools }
+    McpStatus { running: true, url, error: None, tools, token_required }
 }

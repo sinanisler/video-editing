@@ -6,6 +6,17 @@ use std::path::{Path, PathBuf};
 
 const MAX_UNDO: usize = 200;
 const MAX_LOG: usize = 200;
+/// How many changes by others one tool result lists.
+const MAX_NEWS: usize = 6;
+
+/// Arguments short enough to list in a tool result.
+fn brief(args: &Value) -> Value {
+    let text = args.to_string();
+    if text.chars().count() <= 160 {
+        return args.clone();
+    }
+    Value::String(format!("{}…", text.chars().take(160).collect::<String>()))
+}
 
 struct Step {
     snapshot: Project,
@@ -37,9 +48,18 @@ pub struct EditorState {
     pub log: Vec<LogEntry>,
 }
 
+/// What the user is looking at in the window: where the playhead is and which clips are selected.
+/// It is not part of the project, so it is neither saved nor undone.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+pub struct View {
+    pub playhead: i64,
+    pub selection: Vec<String>,
+}
+
 /// One open project with its undo history and activity log.
 pub struct Editor {
     project: Project,
+    view: View,
     undo: Vec<Step>,
     redo: Vec<Step>,
     log: Vec<LogEntry>,
@@ -56,7 +76,7 @@ impl Default for Editor {
 
 impl Editor {
     pub fn new(project: Project) -> Self {
-        Editor { project, undo: vec![], redo: vec![], log: vec![], seq: 0, path: None, dirty: false }
+        Editor { project, view: View::default(), undo: vec![], redo: vec![], log: vec![], seq: 0, path: None, dirty: false }
     }
 
     pub fn project(&self) -> &Project {
@@ -65,6 +85,49 @@ impl Editor {
 
     pub fn log(&self) -> &[LogEntry] {
         &self.log
+    }
+
+    pub fn view(&self) -> &View {
+        &self.view
+    }
+
+    /// The window reports where the playhead is and what is selected. Clips that do not exist are dropped.
+    pub fn set_view(&mut self, playhead: i64, selection: Vec<String>) {
+        let selection = selection.into_iter().filter(|id| self.project.clip(id).is_some()).collect();
+        self.view = View { playhead: playhead.max(0), selection };
+    }
+
+    /// The number of the newest log entry. An agent's session remembers it, to be told what happened since.
+    pub fn seq(&self) -> u64 {
+        self.seq
+    }
+
+    /// A few lines of state sent back with every tool result, so an agent knows what the user is looking at and
+    /// what others changed since its last call (the log entries after `since`) without asking.
+    pub fn context(&self, actor: &str, since: u64) -> Value {
+        let p = &self.project;
+        let fps = p.settings.fps_num as f64 / p.settings.fps_den as f64;
+        let selection: Vec<&String> = self.view.selection.iter().filter(|id| p.clip(id).is_some()).collect();
+        let mut context = serde_json::json!({
+            "playhead": self.view.playhead,
+            "playhead_time": crate::analysis::timecode(self.view.playhead as f64 / fps),
+            "selection": selection,
+            "duration_frames": p.duration(),
+            "unsaved_changes": self.dirty,
+        });
+        // Reads, and the calls of the one asking, are not news to it.
+        let news: Vec<&LogEntry> =
+            self.log.iter().filter(|e| e.seq > since && e.ok && e.actor != actor && !crate::tools::is_read(&e.tool)).collect();
+        if !news.is_empty() {
+            let shown: Vec<Value> =
+                news.iter().take(MAX_NEWS).map(|e| serde_json::json!({ "by": e.actor, "tool": e.tool, "args": brief(&e.args) })).collect();
+            context["changed_by_others_since_your_last_call"] = Value::Array(shown);
+            if news.len() > MAX_NEWS {
+                context["earlier_changes_not_shown"] = serde_json::json!(news.len() - MAX_NEWS);
+            }
+            context["note"] = "Frame numbers and clip ids you noted earlier may be stale: read the timeline again before editing.".into();
+        }
+        context
     }
 
     pub(crate) fn record(&mut self, actor: &str, tool: String, args: Value, result: &Result<Value, String>) {

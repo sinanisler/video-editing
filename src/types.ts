@@ -115,6 +115,8 @@ export interface McpStatus {
   url: string;
   error: string | null;
   tools: number;
+  /** True when the app was started with SNN_MCP_TOKEN set, so callers must send that token. */
+  token_required?: boolean;
 }
 
 export interface EditorState {

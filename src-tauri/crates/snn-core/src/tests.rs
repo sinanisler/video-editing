@@ -196,7 +196,8 @@ fn every_catalog_tool_is_wired_up() {
         }
         // These examples are valid against the fixture and must succeed outright.
         // The analysis tools need FFmpeg and a real file; `analysis_reads_a_real_file` covers them.
-        if !matches!(tool.name, "media_remove" | "timeline_remove_marker") && !crate::is_analysis(tool.name) && !crate::is_export(tool.name) {
+        // The tools the app answers itself are refused here; the fixture has no file to save to.
+        if !matches!(tool.name, "media_remove" | "timeline_remove_marker" | "project_save") && !crate::is_analysis(tool.name) && !crate::is_app_tool(tool.name) {
             assert!(result.is_ok(), "{}: {:?}", tool.name, result);
         }
         assert_eq!(e.state().log[0].actor, "agent");
@@ -214,7 +215,7 @@ fn guides_are_listed_and_readable() {
         assert_eq!(e.call_tool("agent", "guide_get", json!({"name": g.name})).unwrap(), json!(g.text));
         // A guide must not send an agent to a tool that does not exist.
         for word in g.text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')) {
-            let prefixes = ["timeline_", "clip_", "project_", "history_", "media_", "batch_", "view_", "guide_", "library_", "frames_", "audio_", "export_"];
+            let prefixes = ["timeline_", "clip_", "project_", "history_", "media_", "batch_", "view_", "guide_", "library_", "frames_", "audio_", "export_", "speech_"];
             if prefixes.iter().any(|p| word.starts_with(p) && word.len() > p.len()) {
                 assert!(catalog().iter().any(|t| t.name == word), "{} mentions unknown tool {word}", g.name);
             }
@@ -255,7 +256,14 @@ fn analysis_arguments_are_checked_against_the_project() {
     // On the timeline, a frame is found through the clip: its source offset and its speed.
     e.call_tool("t", "timeline_add_clip", json!({"track": "V1", "start": 100, "duration": 300, "name": "x", "kind": "video", "media": media, "source_in": 3000})).unwrap();
     let Job::Frame { shot, .. } = e.analysis_job("frames_get", &json!({"at": 130})).unwrap() else { panic!() };
-    assert_eq!(format!("{shot:?}"), r#"Shot { path: "C:/a.mp4", seconds: 101.0, label: "T 0m04s f130" }"#);
+    assert_eq!(format!("{shot:?}"), r#"Shot { path: "C:/a.mp4", seconds: 101.0, label: "T 0m04.33s f130" }"#);
+    // The answer names the frame both ways, so nobody has to work out the source frame from the clip.
+    let Job::Frame { info, .. } = e.analysis_job("frames_get", &json!({"at": 130})).unwrap() else { panic!() };
+    assert_eq!((info["timeline_frame"].clone(), info["source_frame"].clone(), info["media"].clone()), (json!(130), json!(3030), json!(media)));
+    assert_eq!(info["source_time"], "1m41.00s");
+    let Job::Frame { shot, info, .. } = e.analysis_job("frames_get", &json!({"media": media, "at": 45})).unwrap() else { panic!() };
+    assert_eq!((info["source_frame"].clone(), info["time"].clone()), (json!(45), json!("0m01.50s")));
+    assert!(format!("{shot:?}").contains("0m01.50s f45"), "a single frame carries its label too: {shot:?}");
     let Job::Sheet { shots, columns, tile, .. } = e.analysis_job("frames_contact_sheet", &json!({"count": 4})).unwrap() else { panic!() };
     // Four samples across frames 0 to 400; the first falls before the clip and is left out.
     assert_eq!((shots.len(), columns, tile), (3, 3, (320, 180)));
@@ -301,6 +309,30 @@ fn analysis_reads_a_real_file() {
     let part = e.call_tool("agent", "audio_get_activity", json!({"media": media, "from": 150, "to": 450})).unwrap();
     assert!((part["silences"][0]["from"].as_i64().unwrap() - 180).abs() <= 3, "{part}");
     assert!(e.call_tool("agent", "audio_get_activity", json!({"media": media, "audio_stream": 3})).unwrap_err().contains("1 audio stream"));
+
+    // Without media the edit itself is heard, in timeline frames.
+    let near = |v: &serde_json::Value, want: i64| (v.as_i64().unwrap() - want).abs() <= 3;
+    e.call_tool("t", "timeline_add_clip", json!({"track": "A1", "start": 0, "duration": 600, "name": "sound", "kind": "audio", "media": media})).unwrap();
+    let edit = e.call_tool("agent", "audio_get_activity", json!({})).unwrap();
+    assert_eq!((edit["frames"].clone(), edit["track"].clone(), edit["clips_read"].clone()), (json!("timeline frames"), json!("A1"), json!(1)));
+    assert!(near(&edit["silences"][0]["from"], 180) && near(&edit["silences"][0]["to"], 300), "{edit}");
+    // Two seconds are cut out of the middle of the silence, given as source frames. What is left of it is one
+    // silence across the cut, two seconds shorter.
+    let cut = e.call_tool("t", "timeline_ripple_delete_ranges", json!({"media": media, "ranges": [{"from": 210, "to": 270}]})).unwrap();
+    assert_eq!((cut["removed_frames"].clone(), cut["duration_frames"].clone()), (json!(60), json!(540)));
+    let edit = e.call_tool("agent", "audio_get_activity", json!({})).unwrap();
+    assert_eq!((edit["clips_read"].clone(), edit["silences"].as_array().unwrap().len()), (json!(2), 1), "{edit}");
+    assert!(near(&edit["silences"][0]["from"], 180) && near(&edit["silences"][0]["to"], 240), "{edit}");
+    // The peak at 14 s of the file is two seconds earlier on the timeline now.
+    let peak = edit["loudest"].as_array().unwrap().iter().max_by(|a, b| a["lufs"].as_f64().unwrap().total_cmp(&b["lufs"].as_f64().unwrap())).unwrap();
+    assert!((360..=400).contains(&peak["at"].as_i64().unwrap()), "{edit}");
+
+    // A format the MP4 reader does not know is measured by FFmpeg.
+    let wav = dir.join("ses.wav").display().to_string();
+    let made = std::process::Command::new("ffmpeg").args(["-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=1.5", &wav]).status();
+    assert!(made.is_ok_and(|s| s.success()));
+    let sound = e.call_tool("t", "media_import", json!({"path": wav})).unwrap();
+    assert_eq!((sound["media"]["kind"].clone(), sound["media"]["duration"].clone(), sound["media"]["has_audio"].clone()), (json!("audio"), json!(45), json!(true)));
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -929,6 +961,27 @@ mod export {
         assert!(log.contains("Video: hevc") && log.contains("hvc1"), "{log}");
     }
 
+    /// A single timeline frame can be exported on its own, which is how an agent sees the finished picture.
+    #[test]
+    fn one_frame_renders_as_the_finished_picture() {
+        let Some(mut b) = Bench::new("oneframe") else { return };
+        // Red for a second, then blue, with a green box drawn over the blue part as text would be.
+        b.clip("V1", 0, 120, "steps.mp4", 0);
+        b.e.call_tool("t", "timeline_add_clip", json!({"track": "V3", "start": 60, "duration": 60, "name": "card", "kind": "graphic", "template": "title", "text": "x"})).unwrap();
+        let text = [TextTrack { track: "V3".into(), spans: vec![TextSpan { from: 60, to: 120, image: "text.png".into(), rect: None }] }];
+        for (at, name, ground, middle) in [(15, "f15.mp4", RED, RED), (90, "f90.mp4", BLUE, GREEN)] {
+            let (file, plan) = b.export_with(name, 30.0, &text, "libx264", |s| s.range = ExportRange::Frames { from: at, to: at + 1 });
+            assert_eq!(plan.total_frames, 1);
+            expect(&file, 0, 40, 40, ground);
+            expect(&file, 0, 320, 180, middle);
+            let jpeg = crate::first_frame_jpeg(&file.display().to_string(), 320).unwrap();
+            assert!(jpeg.starts_with(&[0xff, 0xd8]) && jpeg.len() > 500);
+        }
+        // Frames past the end are refused rather than rendered empty.
+        let past = ExportSettings { range: ExportRange::Frames { from: 500, to: 501 }, ..ExportSettings::new(b.dir.join("x.mp4").display().to_string(), 640, 360, 30.0) };
+        assert!(check_export(b.e.project(), &past).unwrap_err().contains("nothing on the timeline"));
+    }
+
     /// What FFmpeg reports about a file: its streams, and the encoder that wrote it.
     fn ffmpeg_report(file: &Path) -> String {
         let out = Command::new(ffmpeg_path()).args(["-hide_banner", "-i", &file.display().to_string()]).output().unwrap();
@@ -1263,4 +1316,193 @@ fn captions_read_lists_caption_text_in_time_order() {
     let span = e.call_tool("t", "captions_read", json!({"from": 50, "to": 100})).unwrap();
     assert_eq!(span["captions"].as_array().unwrap().len(), 1);
     assert_eq!(span["captions"][0]["text"], json!("Second line"));
+}
+
+/// An editor with one hour-long video on V1 and its sound on A1, linked, as an import leaves them.
+fn recording() -> (Editor, String) {
+    let mut e = Editor::default();
+    let media = e.call_tool("t", "media_import", json!({"path": "C:/raw.mp4", "kind": "video", "duration": 108000, "has_audio": true})).unwrap()["media"]["id"].as_str().unwrap().to_string();
+    let v = e.call_tool("t", "timeline_add_clip", json!({"track": "V1", "start": 0, "duration": 108000, "name": "raw", "kind": "video", "media": media})).unwrap()["clip"].as_str().unwrap().to_string();
+    e.call_tool("t", "timeline_add_clip", json!({"track": "A1", "start": 0, "duration": 108000, "name": "raw", "kind": "audio", "media": media, "link_to": v})).unwrap();
+    (e, media)
+}
+
+/// (start, duration, source_in) of every clip on a track, in order.
+fn pieces(e: &Editor, track: &str) -> Vec<(i64, i64, i64)> {
+    clips_on(e, track).iter().map(|c| (c.start, c.duration, c.source_in)).collect()
+}
+
+#[test]
+fn several_ranges_are_removed_in_any_order_as_one_step() {
+    let ranges = [(600, 900), (3000, 3300), (9000, 9600), (50, 80)];
+    // The careful way: one range at a time, last first.
+    let (mut by_hand, _) = recording();
+    let mut sorted = ranges;
+    sorted.sort();
+    for (from, to) in sorted.iter().rev() {
+        by_hand.call_tool("t", "timeline_ripple_delete_range", json!({"from": from, "to": to})).unwrap();
+    }
+    // The same ranges in the order they were found, with part of one given a second time.
+    let (mut e, _) = recording();
+    let steps = e.state().history_len;
+    let given: Vec<_> = ranges.iter().chain(&[(3100, 3300)]).map(|(from, to)| json!({"from": from, "to": to})).collect();
+    let r = e.call_tool("agent", "timeline_ripple_delete_ranges", json!({"ranges": given})).unwrap();
+    assert_eq!((r["ranges_removed"].clone(), r["removed_frames"].clone()), (json!(4), json!(1230)));
+    assert_eq!(r["duration_frames"], 108000 - 1230);
+    assert_eq!(pieces(&e, "V1"), pieces(&by_hand, "V1"));
+    assert_eq!(pieces(&e, "A1"), pieces(&by_hand, "A1"));
+    assert_eq!(e.state().history_len, steps + 1, "one undo step");
+    assert_no_overlaps(&e);
+    let bad = e.call_tool("agent", "timeline_ripple_delete_ranges", json!({"ranges": [{"from": 10, "to": 5}]})).unwrap_err();
+    assert!(bad.contains("from < to"), "{bad}");
+}
+
+#[test]
+fn ranges_given_in_source_frames_find_the_footage_wherever_it_now_is() {
+    let (mut e, media) = recording();
+    // An earlier pass already removed the first minute, and an intro was put in front of the body.
+    e.call_tool("t", "timeline_ripple_delete_range", json!({"from": 0, "to": 1800})).unwrap();
+    let all: Vec<String> = e.project().sequence.clips.iter().map(|c| c.id.clone()).collect();
+    e.call_tool("t", "timeline_move_clips", json!({"clips": all, "delta": 300})).unwrap();
+    // Source frames 6000 to 6300 are now at timeline 4500 to 4800.
+    let found = e.call_tool("agent", "timeline_locate", json!({"media": media, "source": 6000})).unwrap();
+    let places = found["on_timeline"].as_array().unwrap();
+    assert_eq!(places.len(), 2, "the picture and its sound: {found}");
+    assert!(places.iter().all(|p| p["timeline_frame"] == 4500), "{found}");
+    let back = e.call_tool("agent", "timeline_locate", json!({"at": 4500})).unwrap();
+    assert_eq!((back["clips"][0]["track"].clone(), back["clips"][0]["source_frame"].clone(), back["time"].clone()), (json!("V1"), json!(6000), json!("2m30.00s")));
+
+    // The range that was already cut away is reported, not treated as an error.
+    let r = e.call_tool("agent", "timeline_ripple_delete_ranges", json!({"media": media, "ranges": [{"from": 6000, "to": 6300}, {"from": 100, "to": 200}]})).unwrap();
+    assert_eq!(r["timeline_ranges_removed"], json!([{"from": 4500, "to": 4800}]));
+    assert_eq!(r["source_ranges_not_on_timeline"], json!([{"from": 100, "to": 200}]));
+    assert_eq!(pieces(&e, "V1"), vec![(300, 4200, 1800), (4500, 101700, 6300)]);
+    assert_eq!(pieces(&e, "A1"), pieces(&e, "V1"));
+    let gone = e.call_tool("agent", "timeline_locate", json!({"media": media, "source": 6100})).unwrap();
+    assert!(gone["on_timeline"].as_array().unwrap().is_empty() && gone["note"].as_str().unwrap().contains("cut out"), "{gone}");
+    let none = e.call_tool("agent", "timeline_ripple_delete_ranges", json!({"media": media, "ranges": [{"from": 6000, "to": 6300}]})).unwrap_err();
+    assert!(none.contains("none of those source frames"), "{none}");
+    assert!(e.call_tool("agent", "timeline_locate", json!({"media": media})).unwrap_err().contains("give at"));
+}
+
+#[test]
+fn a_faster_clip_covers_its_source_in_fewer_timeline_frames() {
+    let mut e = Editor::default();
+    let media = e.call_tool("t", "media_import", json!({"path": "C:/raw.mp4", "kind": "video", "duration": 9000})).unwrap()["media"]["id"].as_str().unwrap().to_string();
+    let clip = e.call_tool("t", "timeline_add_clip", json!({"track": "V1", "start": 100, "duration": 300, "name": "fast", "kind": "video", "media": media, "source_in": 1000})).unwrap()["clip"].as_str().unwrap().to_string();
+    e.call_tool("t", "clip_set_property", json!({"clip": clip, "key": "speed", "value": 200})).unwrap();
+    // At double speed the clip shows source 1000 to 1600; source 1200 is a third of the way in.
+    let found = e.call_tool("agent", "timeline_locate", json!({"media": media, "source": 1200})).unwrap();
+    assert_eq!(found["on_timeline"][0]["timeline_frame"], 200);
+    let under = e.call_tool("agent", "timeline_locate", json!({"at": 200})).unwrap();
+    assert_eq!(under["clips"][0]["source_frame"], 1200);
+    let r = e.call_tool("agent", "timeline_ripple_delete_ranges", json!({"media": media, "ranges": [{"from": 1200, "to": 1400}]})).unwrap();
+    assert_eq!(r["timeline_ranges_removed"], json!([{"from": 200, "to": 300}]));
+    assert_eq!(pieces(&e, "V1"), vec![(100, 100, 1000), (200, 100, 1400)]);
+}
+
+#[test]
+fn markers_can_travel_with_the_clips_they_sit_over() {
+    let (mut e, _) = recording();
+    e.call_tool("t", "timeline_ripple_delete_range", json!({"from": 1000, "to": 2000})).unwrap();
+    e.call_tool("t", "timeline_add_marker", json!({"at": 500, "label": "check"})).unwrap();
+    e.call_tool("t", "timeline_add_marker", json!({"at": 5000, "label": "later"})).unwrap();
+    let at = |e: &Editor| e.project().sequence.markers.iter().map(|m| m.at).collect::<Vec<_>>();
+    let all: Vec<String> = e.project().sequence.clips.iter().map(|c| c.id.clone()).collect();
+    // Without the flag they stay, as before.
+    e.call_tool("t", "timeline_move_clips", json!({"clips": all, "delta": 360})).unwrap();
+    assert_eq!(at(&e), vec![500, 5000]);
+    e.undo("t").unwrap();
+    let moved = e.call_tool("t", "timeline_move_clips", json!({"clips": all, "delta": 360, "markers": true})).unwrap();
+    assert_eq!((moved["markers_moved"].clone(), at(&e)), (json!(2), vec![860, 5360]));
+    // Only the markers over the moved clips go: the second piece starts at 1360 now.
+    let tail: Vec<String> = e.project().sequence.clips.iter().filter(|c| c.start >= 1360).map(|c| c.id.clone()).collect();
+    e.call_tool("t", "timeline_move_clips", json!({"clips": tail, "delta": 100, "markers": true})).unwrap();
+    assert_eq!(at(&e), vec![860, 5460]);
+}
+
+#[test]
+fn every_result_can_say_what_the_user_sees_and_what_others_changed() {
+    let (mut e, _) = recording();
+    let clip = clips_on(&e, "V1")[0].id.clone();
+    let seen = e.seq();
+    assert!(e.context("claude", seen).get("changed_by_others_since_your_last_call").is_none());
+
+    // The window reports the playhead and the selection; a clip that is not there is dropped.
+    e.set_view(900, vec![clip.clone(), "c999".into()]);
+    let view = e.call_tool("claude", "view_get", json!({})).unwrap();
+    assert_eq!((view["playhead"].clone(), view["playhead_time"].clone(), view["selection"][0]["clip"].clone()), (json!(900), json!("0m30.00s"), json!(clip)));
+    assert_eq!(e.call_tool("claude", "project_get_info", json!({})).unwrap()["playhead"], 900);
+
+    // The agent's own calls and anybody's reads are not news; the user's edit is.
+    let seen = e.seq();
+    e.call_tool("claude", "timeline_add_marker", json!({"at": 10, "label": "mine"})).unwrap();
+    e.call_tool("user", "timeline_get_state", json!({})).unwrap();
+    assert!(e.context("claude", seen).get("changed_by_others_since_your_last_call").is_none());
+    e.execute("user", cmd(json!({"tool": "timeline.split_clip", "args": {"at": 3000}}))).unwrap();
+    let context = e.context("claude", seen);
+    let news = context["changed_by_others_since_your_last_call"].as_array().unwrap();
+    assert_eq!((news.len(), news[0]["by"].clone(), news[0]["tool"].clone()), (1, json!("user"), json!("timeline.split_clip")));
+    assert!(context["note"].as_str().unwrap().contains("read the timeline again"));
+    assert_eq!((context["playhead"].clone(), context["selection"].clone(), context["unsaved_changes"].clone()), (json!(900), json!([clip]), json!(true)));
+    // Once it has been told, it is not told again.
+    assert!(e.context("claude", e.seq()).get("changed_by_others_since_your_last_call").is_none());
+
+    // Many changes are counted, not all listed.
+    for at in 1..=9 {
+        e.execute("user", cmd(json!({"tool": "timeline.add_marker", "args": {"at": at, "label": "x"}}))).unwrap();
+    }
+    let context = e.context("claude", seen);
+    assert_eq!((context["changed_by_others_since_your_last_call"].as_array().unwrap().len(), context["earlier_changes_not_shown"].clone()), (6, json!(4)));
+
+    // An agent pointing the user somewhere is what the user then sees.
+    e.call_tool("claude", "view_set", json!({"frame": 42})).unwrap();
+    assert_eq!((e.view().playhead, e.view().selection.clone()), (42, vec![clip]));
+}
+
+#[test]
+fn an_agent_can_save_the_project() {
+    let (mut e, _) = recording();
+    let none = e.call_tool("agent", "project_save", json!({})).unwrap_err();
+    assert!(none.contains("no file yet"), "{none}");
+    assert!(e.call_tool("agent", "project_save", json!({"path": "episode.snn"})).unwrap_err().contains("full path"));
+    assert!(e.call_tool("agent", "project_save", json!({"path": "C:/x/episode.txt"})).unwrap_err().contains(".snn"));
+    let path = std::env::temp_dir().join(format!("snn-save-tool-{}.snn", std::process::id()));
+    let saved = e.call_tool("agent", "project_save", json!({"path": path})).unwrap();
+    assert_eq!(saved["saved"], path.display().to_string());
+    assert!(!e.state().dirty);
+    // Afterwards it saves to the same file without being told where.
+    e.call_tool("agent", "timeline_add_marker", json!({"at": 5, "label": "x"})).unwrap();
+    assert_eq!(e.call_tool("agent", "project_get_info", json!({})).unwrap()["unsaved_changes"], true);
+    e.call_tool("agent", "project_save", json!({})).unwrap();
+    assert_eq!(e.state().log[0].tool, "project.save");
+    let mut again = Editor::default();
+    again.open(&path).unwrap();
+    assert_eq!(again.project(), e.project());
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn ffmpeg_file_descriptions_are_read_for_kind_length_and_size() {
+    use crate::analysis::parse_probe;
+    let mkv = "Input #0, matroska,webm, from 'kayıt.mkv':\n  Duration: 01:02:03.50, start: 0.000000, bitrate: 9000 kb/s\n  Stream #0:0: Video: h264 (High), yuv420p(tv, bt709, progressive), 2560x1440 [SAR 1:1 DAR 16:9], 60 fps, 60 tbr, 1k tbn\n  Stream #0:1: Audio: aac (LC), 48000 Hz, stereo, fltp\n  Stream #0:2: Audio: aac (LC), 48000 Hz, mono, fltp";
+    let p = parse_probe(mkv, "kayıt.mkv").unwrap();
+    assert_eq!((p.kind, p.seconds, p.width, p.height, p.has_audio), (MediaKind::Video, 3723.5, 2560, 1440, true));
+    // Cover art does not make a song a video.
+    let mp3 = "Input #0, mp3, from 'song.mp3':\n  Duration: 00:03:20.00, start: 0.02, bitrate: 320 kb/s\n  Stream #0:0: Audio: mp3, 44100 Hz, stereo, fltp, 320 kb/s\n  Stream #0:1: Video: mjpeg (Baseline), yuvj420p, 600x600, 90k tbr (attached pic)";
+    let p = parse_probe(mp3, "song.mp3").unwrap();
+    assert_eq!((p.kind, p.seconds, p.has_audio), (MediaKind::Audio, 200.0, true));
+    let png = "Input #0, png_pipe, from 'logo.png':\n  Duration: N/A, bitrate: N/A\n  Stream #0:0: Video: png, rgba(pc), 800x600, 25 fps, 25 tbr, 25 tbn";
+    let p = parse_probe(png, "logo.png").unwrap();
+    assert_eq!((p.kind, p.seconds, p.width, p.height, p.has_audio), (MediaKind::Image, 0.0, 800, 600, false));
+    assert!(parse_probe("nope.txt: Invalid data found when processing input", "nope.txt").is_none());
+}
+
+#[test]
+fn times_are_written_to_the_hundredth_of_a_second() {
+    use crate::analysis::timecode;
+    assert_eq!(timecode(0.0), "0m00.00s");
+    assert_eq!(timecode(4.5), "0m04.50s");
+    assert_eq!(timecode(247.0 + 1.0 / 30.0), "4m07.03s");
+    assert_eq!(timecode(3725.999), "62m06.00s");
 }

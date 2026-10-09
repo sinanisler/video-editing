@@ -39,6 +39,8 @@ pub enum ExportRange {
     Whole,
     /// Between the in and out points; a missing point means the start or the end.
     InOut,
+    /// These timeline frames, whatever the in and out points are. An agent's rendered frame uses it.
+    Frames { from: Frame, to: Frame },
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -1179,6 +1181,7 @@ pub fn check(p: &Project, s: &ExportSettings) -> Result<(Frame, Frame), String> 
     let (from, to) = match s.range {
         ExportRange::Whole => (0, end),
         ExportRange::InOut => (p.sequence.in_point.unwrap_or(0), p.sequence.out_point.unwrap_or(end).min(end)),
+        ExportRange::Frames { from, to } => (from.max(0), to.min(end)),
     };
     if to <= from {
         return Err("there is nothing on the timeline to export".into());

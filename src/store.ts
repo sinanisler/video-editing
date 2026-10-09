@@ -16,6 +16,8 @@ function createStore<T extends object>(initial: T) {
   };
   return {
     get: () => state,
+    /** Calls `l` after every change. Returns a function that stops it. */
+    subscribe,
     set(patch: Partial<T>) {
       state = { ...state, ...patch };
       listeners.forEach((l) => l());
@@ -126,6 +128,19 @@ export function toast(message: string) {
   toastTimer = window.setTimeout(() => ui.set({ toast: "" }), 2600);
 }
 
+let viewTimer = 0;
+let viewSent = "";
+
+/** Tells the core where the playhead is and what is selected, so agents know what the user is looking at. */
+function reportView() {
+  viewTimer = 0;
+  const { frame, selection } = ui.get();
+  const now = `${frame}|${selection.join(",")}`;
+  if (now === viewSent) return;
+  viewSent = now;
+  void invoke("set_view", { frame, selection }).catch(() => {});
+}
+
 export async function init() {
   await listen<EditorState>("editor:state", (e) => core.set({ state: e.payload }));
   // An agent pointing the user at a frame or at clips.
@@ -135,6 +150,11 @@ export async function init() {
   });
   const library = await invoke<Library>("library");
   core.set({ state: await invoke<EditorState>("get_state"), mcp: await invoke<McpStatus>("mcp_status"), library });
+  reportView();
+  ui.subscribe(() => {
+    // A few times a second is enough for an agent, and playback moves the playhead on every frame.
+    if (!viewTimer) viewTimer = window.setTimeout(reportView, 250);
+  });
   const missing = unimplemented(library);
   if (missing.length) toast(`The preview cannot draw: ${missing.join(", ")}`);
 }

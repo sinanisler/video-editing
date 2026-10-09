@@ -18,18 +18,18 @@ mod scan;
 mod speech;
 mod tools;
 
-pub use analysis::{available_encoders, base64, ffmpeg_version, supports_export, unavailable_encoders, unbase64, ffmpeg_path, is_analysis, probe_streams, Analysis, Job, INSTALL_HINT};
-pub use command::{apply, Command};
-pub use editor::{Editor, EditorState, LogEntry};
+pub use analysis::{available_encoders, base64, ffmpeg_version, timecode, supports_export, unavailable_encoders, unbase64, ffmpeg_path, first_frame_jpeg, is_analysis, probe_file, probe_streams, Analysis, Job, INSTALL_HINT};
+pub use command::{apply, Command, Span};
+pub use editor::{Editor, EditorState, LogEntry, View};
 pub use export::{codec_name, codec_of, check as check_export, plan as plan_export, presets as export_presets, AudioStreams, Chunk, Codec, ExportRange, ExportSettings, MediaInfo, Plan, Preset, Quality, RateMode, TextSpan, TextTrack, ENCODERS, SAMPLE_RATE};
-pub use guides::{find_guide, guides, Guide};
+pub use guides::{find_guide, guides, set_guide_folders, Guide};
 pub use library::{library, Library};
 pub use model::*;
 pub use probe::{probe_mp4, Probe};
 pub use render::{render, CANCELLED};
 pub use scan::media_under;
 pub use speech::{audio_streams, encode_speech, parse_speech, AudioStream, SpeechCue, PART_SECONDS};
-pub use tools::{catalog, is_export, ToolDef, INSTRUCTIONS};
+pub use tools::{catalog, is_app_tool, is_export, ToolDef, INSTRUCTIONS};
 
 #[cfg(test)]
 mod tests;

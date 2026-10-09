@@ -261,6 +261,67 @@ pub fn cancel(app: &AppHandle, exports: &Exports) -> ExportStatus {
     exports.status()
 }
 
+/// Files a rendered frame is exported to carry this in their name, so the window does not announce them as exports.
+pub const FRAME_PREFIX: &str = "snn-frame-";
+/// How long the window and FFmpeg get to produce one frame.
+const FRAME_TIMEOUT: Duration = Duration::from_secs(90);
+
+/// The `frames_render` tool: one timeline frame as the finished video shows it. It is a one-frame export, run the
+/// way every export is (the window draws the text, FFmpeg composes the picture), and this waits for it.
+pub fn render_frame(app: &AppHandle, exports: &Exports, editor: &SharedEditor, args: &Value) -> Result<snn_core::Analysis, String> {
+    let at = args["at"].as_i64().filter(|a| *a >= 0).ok_or("at must be a timeline frame")?;
+    let width = args["width"].as_i64().unwrap_or(960).clamp(160, 1920);
+    let (mut settings, fps) = {
+        let editor = editor.lock().unwrap();
+        let p = editor.project();
+        if at >= p.duration() {
+            return Err(format!("the timeline ends at frame {}; there is nothing at frame {at}", p.duration()));
+        }
+        let fps = p.settings.fps_num as f64 / p.settings.fps_den as f64;
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        let path = std::env::temp_dir().join(format!("{FRAME_PREFIX}{}-{nanos}.mp4", std::process::id()));
+        (ExportSettings::new(path.display().to_string(), p.settings.width, p.settings.height, fps), fps)
+    };
+    settings.range = snn_core::ExportRange::Frames { from: at, to: at + 1 };
+    settings.quality = snn_core::Quality::High;
+    // One frame is no work for the processor, and the software encoder takes any picture size.
+    if available_encoders().iter().any(|e| e == "libx264") {
+        settings.encoder = "libx264".into();
+    }
+    let path = settings.path.clone();
+    let job = request(app, exports, editor, settings)?;
+    let started = Instant::now();
+    let finished = loop {
+        let status = exports.status();
+        if status.job != job {
+            break Err("another export took its place".to_string());
+        }
+        match status.state {
+            "done" => break Ok(status.warnings),
+            "failed" => break Err(status.message),
+            "cancelled" => break Err("the export was cancelled".into()),
+            _ => {}
+        }
+        if started.elapsed() > FRAME_TIMEOUT {
+            cancel(app, exports);
+            break Err("the app window did not render the frame in time; check that the window is open and not showing a dialog".into());
+        }
+        std::thread::sleep(Duration::from_millis(40));
+    };
+    let jpeg = finished.and_then(|warnings| Ok((snn_core::first_frame_jpeg(&path, width)?, warnings)));
+    let _ = std::fs::remove_file(&path);
+    let (jpeg, warnings) = jpeg?;
+    let info = json!({
+        "frames": "timeline frames",
+        "timeline_frame": at,
+        "time": snn_core::timecode(at as f64 / fps),
+        "shows": "the finished picture: every layer, effect, transition, card and caption",
+        "warnings": warnings,
+        "width": width,
+    });
+    Ok(snn_core::Analysis { info, jpeg: Some(jpeg) })
+}
+
 /// The export tools agents call. `export_start` returns as soon as the job is accepted.
 pub fn tool(app: &AppHandle, exports: &Exports, editor: &SharedEditor, name: &str, args: &Value) -> Result<Value, String> {
     let report = |s: ExportStatus| {
